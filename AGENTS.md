@@ -1,127 +1,170 @@
-# 🧠 Протокол роботи з пам'яттю (Memory MCP)
+# 🧠 Memory Protocol (Memory MCP)
 
-> **КРИТИЧНО**: Цей протокол є ОБОВ'ЯЗКОВИМ. Порушення = втрата контексту між сесіями.
-> Мета: будь-який агент може продовжити роботу іншого агента без втрати контексту.
-
----
-
-### 📋 Система обов'язкових префіксів
-
-**КОЖЕН запис в пам'яті ПОВИНЕН починатися з префіксу.**
-
-| Префікс | memory_type | Призначення | Пріоритет |
-|---------|-------------|-------------|-----------|
-| `PROJECT:` | semantic | Загальний стан проекту | 🟢 Низький |
-| `EPIC:` | procedural | Група WP, прогрес фічі | 🟡 Середній |
-| `TASK:` | episodic | Активний Work Package | 🔴 **Найвищий** |
-| `DECISION:` | semantic | Архітектурне рішення з причиною | 🟢 Низький |
-| `CONTEXT:` | semantic | Технічний контекст (стек, архітектура) | 🟢 Низький |
-| `USER:` | semantic | Преференції користувача | 🟢 Низький |
-
-#### ⛔ ЗАБОРОНЕНО:
-- **ЗАБОРОНЕНО** зберігати записи БЕЗ префіксу
-- **ЗАБОРОНЕНО** використовувати інші префікси
-- **ЗАБОРОНЕНО** зберігати TASK/EPIC без поля `Updated:`
+<critical>
+This protocol is MANDATORY. Violation = loss of context between sessions.
+Goal: any agent can continue another agent's work without losing context.
+</critical>
 
 ---
 
-### 📐 Структури записів
+## ⚡ Quick Reference
 
-#### TASK (Work Package) — найважливіший для відновлення
+<quick_reference>
+
+| Situation | Action | Section |
+|-----------|--------|---------|
+| 🚀 Session start | `search_text` → show TASK → AUTO_CONTINUE | [SESSION_START](#-session_start-session-startup-algorithm) |
+| 🔍 Found TASK | Show to user → wait 30 sec | [AUTO_CONTINUE](#-auto_continue-confirmation-protocol-with-timer) |
+| ✏️ Changed subtask | `update_memory` with new Current | [TASK_UPDATE](#-task_update-when-to-update-memory) |
+| ✅ Completed WP | `invalidate` → update EPIC → new TASK | [TASK_COMPLETE](#-task_complete-completing-work-package) |
+
+</quick_reference>
+
+<critical_reminder>
+🔴 MOST COMMON MISTAKE: Continuing work WITHOUT showing task state to user.
+User message BEFORE showing TASK — is NOT a confirmation!
+</critical_reminder>
+
+---
+
+## 📋 Mandatory Prefix System
+
+<prefixes>
+
+**EVERY memory entry MUST start with a prefix.**
+
+| Prefix | memory_type | Purpose | Priority |
+|--------|-------------|---------|----------|
+| `PROJECT:` | semantic | Overall project state | 🟢 Low |
+| `EPIC:` | procedural | WP group, feature progress | 🟡 Medium |
+| `TASK:` | episodic | Active Work Package | 🔴 **Highest** |
+| `DECISION:` | semantic | Architectural decision with reason | 🟢 Low |
+| `CONTEXT:` | semantic | Technical context (stack, architecture) | 🟢 Low |
+| `USER:` | semantic | User preferences | 🟢 Low |
+
+</prefixes>
+
+<constraints type="prefixes">
+- FORBIDDEN to store entries WITHOUT prefix
+- FORBIDDEN to use other prefixes
+- FORBIDDEN to store TASK/EPIC without `Updated:` field
+</constraints>
+
+---
+
+## 📐 Record Structures
+
+### TASK (Work Package) — most important for recovery
 
 ```
-TASK: {WP-id}-{короткий-опис}
+TASK: {WP-id}-{short-description}
 ID: {WP-id}
 Status: in_progress | blocked | completed | paused
 Lane: planned | in_progress | review | done
 Feature: {feature-id}
-Path: {шлях до WP файлу, напр. kitty-specs/.../tasks/WP01-xxx.md}
+Path: {path to WP file, e.g. kitty-specs/.../tasks/WP01-xxx.md}
 Updated: {ISO 8601 timestamp}
 
-Command: {команда для відновлення, напр. /spec-kitty.implement WP01}
-Agent: {агент який виконує, напр. spec-kitty}
+Command: {recovery command, e.g. /spec-kitty.implement WP01}
+Agent: {executing agent, e.g. spec-kitty}
 
 Subtasks:
-- [x] T001: {опис} - {результат}
-- [ ] T002: {опис}
-- [ ] T003: {опис}
+- [x] T001: {description} - {result}
+- [ ] T002: {description}
+- [ ] T003: {description}
 
 AC (Acceptance Criteria):
-- [x] {критерій 1}
-- [ ] {критерій 2}
+- [x] {criterion 1}
+- [ ] {criterion 2}
 
-Current: {поточний subtask, напр. T002}
-CurrentFile: {файл над яким працюємо}
-Blockers: {None | опис блокера}
+Current: {current subtask, e.g. T002}
+CurrentFile: {file being worked on}
+Blockers: {None | blocker description}
 
 Context:
-- {важлива інформація для продовження}
-- {зміни що були зроблені}
+- {important information for continuation}
+- {changes that were made}
 ```
 
-**Command** та **Agent** — ОБОВ'ЯЗКОВІ поля для автоматичного відновлення після компакту.
+<important>
+**Command** and **Agent** — REQUIRED fields for automatic recovery after compaction.
+</important>
 
-#### EPIC (Feature/група WP)
+### EPIC (Feature/WP group)
 
 ```
 EPIC: {feature-id}
 ID: {feature-id}
 Status: active | paused | completed
-Path: {шлях до kitty-specs/{feature-id}/}
+Path: {path to kitty-specs/{feature-id}/}
 Updated: {ISO 8601 timestamp}
 
 Work Packages: {total} total
 Progress: {completed}/{total} completed
-Current WP: {WP-id} ({назва})
+Current WP: {WP-id} ({name})
 
 Dependency Chain:
 {WP01 → WP02 → ...}
 
-Next: {що робити після поточного WP}
+Next: {what to do after current WP}
 ```
 
-#### PROJECT
+### PROJECT
 
 ```
-PROJECT: {назва проекту}
+PROJECT: {project name}
 ID: {project-id}
 Status: active | paused | completed
-Path: {корінь проекту}
+Path: {project root}
 Branch: {git branch}
 Updated: {ISO 8601 timestamp}
 
-Tech Stack: {ключові технології}
+Tech Stack: {key technologies}
 Current Epic: {feature-id} | None
-Last Completed: {останній завершений epic}
-Next Steps: {що робити далі}
+Last Completed: {last completed epic}
+Next Steps: {what to do next}
 ```
 
-#### DECISION
+### DECISION
 
 ```
-DECISION: {короткий опис рішення}
+DECISION: {short decision description}
 ID: {DEC-xxx}
 Feature: {feature-id}
 Updated: {ISO 8601 timestamp}
 
-REASON: {чому прийняли це рішення}
+REASON: {why this decision was made}
 ALTERNATIVES_REJECTED:
-- {альтернатива 1}: {чому відхилили}
-- {альтернатива 2}: {чому відхилили}
-IMPLICATIONS: {наслідки рішення}
+- {alternative 1}: {why rejected}
+- {alternative 2}: {why rejected}
+IMPLICATIONS: {consequences of the decision}
 ```
 
 ---
 
-### 🚀 SESSION_START: Алгоритм старту сесії
+## 🚀 SESSION_START: Session Startup Algorithm
 
-**ВИКОНАТИ НЕГАЙНО** при першому повідомленні користувача:
+<session_start priority="BLOCKING">
+EXECUTE IMMEDIATELY on first user message.
+No other actions BEFORE completing this protocol.
+</session_start>
+
+<checklist id="session_start">
+- [ ] `search_text("Status: in_progress", limit=5)`
+- [ ] `search_text("TASK:", limit=5)`
+- [ ] `search_text("EPIC:", limit=3)`
+- [ ] `search_text("PROJECT:", limit=3)`
+- [ ] Determined scenario (active/paused/new)
+- [ ] Executed AUTO_CONTINUE if found TASK
+</checklist>
+
+### Algorithm
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    SESSION_START                            │
 ├─────────────────────────────────────────────────────────────┤
-│ КРОК 1: Пошук активних задач (BM25 — точний match)          │
+│ STEP 1: Search for active tasks (BM25 — exact match)        │
 │                                                             │
 │   search_text(query="Status: in_progress", limit=5)         │
 │   search_text(query="TASK:", limit=5)                       │
@@ -129,155 +172,176 @@ IMPLICATIONS: {наслідки рішення}
 │   search_text(query="PROJECT:", limit=3)                    │
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
-│ КРОК 2: Дерево рішень                                       │
+│ STEP 2: Decision tree                                       │
 │                                                             │
-│   IF знайдено TASK з Status=in_progress:                    │
-│      → Прочитати файл з поля Path                           │
-│      → Визначити Current subtask                            │
-│      → ПРОДОВЖИТИ роботу БЕЗ питань                         │
-│      → Повідомити: "Продовжую {TASK}, поточний: {Current}"  │
+│   IF found TASK with Status=in_progress:                    │
+│      → Show task state to user                              │
+│      → Execute AUTO_CONTINUE protocol (see below)           │
+│      → Wait for confirmation OR 30 sec timer                │
 │                                                             │
-│   ELSE IF знайдено TASK з Status=paused/blocked:            │
-│      → Показати контекст та Blockers                        │
-│      → Запитати: "Продовжуємо {TASK}?"                      │
+│   ELSE IF found TASK with Status=paused/blocked:            │
+│      → Show context and Blockers                            │
+│      → Ask: "Continue {TASK}?"                              │
 │                                                             │
-│   ELSE IF знайдено EPIC з Status=active:                    │
-│      → Показати Progress та Current WP                      │
-│      → Запитати: "Починаємо {next WP}?"                     │
+│   ELSE IF found EPIC with Status=active:                    │
+│      → Show Progress and Current WP                         │
+│      → Ask: "Start {next WP}?"                              │
 │                                                             │
-│   ELSE IF знайдено PROJECT:                                 │
-│      → Показати стан проекту                                │
-│      → Запитати: "Над чим працюємо?"                        │
+│   ELSE IF found PROJECT:                                    │
+│      → Show project state                                   │
+│      → Ask: "What are we working on?"                       │
 │                                                             │
 │   ELSE:                                                     │
-│      → COLD START — запитати контекст у користувача         │
+│      → COLD START — ask user for context                    │
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
-│ КРОК 3: Після відновлення                                   │
+│ STEP 3: After recovery                                      │
 │                                                             │
-│   - НЕ оновлювати пам'ять (тільки при зміні стану)          │
-│   - Завантажити файл Path для повного контексту             │
-│   - Перевірити git status для розуміння змін                │
+│   - DO NOT update memory (only on state change)             │
+│   - Load file from Path for full context                    │
+│   - Check git status to understand changes                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-#### ⛔ ЗАБОРОНЕНО на старті:
-- **ЗАБОРОНЕНО** починати роботу БЕЗ пошуку в пам'яті
-- **ЗАБОРОНЕНО** питати "над чим працюємо?" якщо є TASK з Status=in_progress
-- **ЗАБОРОНЕНО** ігнорувати знайдені активні записи
+<error_handling id="session_start">
+
+| Error | Fallback |
+|-------|----------|
+| `search_text` → 0 results | Execute `get_valid(limit=10)`, search by content |
+| Memory MCP unavailable | Ask user for context directly |
+| TASK.Path file doesn't exist | Show TASK from memory, ask for current path |
+
+</error_handling>
+
+<constraints type="session_start">
+- FORBIDDEN to start work WITHOUT searching memory
+- FORBIDDEN to continue work WITHOUT executing AUTO_CONTINUE protocol
+- FORBIDDEN to ignore found active records
+</constraints>
 
 ---
 
-### ⏳ AUTO_CONTINUE: Протокол підтвердження з таймером
+## ⏳ AUTO_CONTINUE: Confirmation Protocol with Timer
 
-**ОБОВ'ЯЗКОВО** при знаходженні активної задачі — запитати користувача з авто-продовженням.
+<auto_continue priority="BLOCKING">
+MANDATORY when finding an active task.
+Show state → Wait for confirmation OR 30 sec timer.
+</auto_continue>
 
-#### Алгоритм:
+### ⚠️ CRITICAL: What is NOT a confirmation
+
+<critical_rule>
+User message BEFORE showing task state — is NOT a confirmation!
+User cannot confirm what they haven't seen yet.
+</critical_rule>
+
+| Scenario | Example | Is this confirmation? |
+|----------|---------|----------------------|
+| User wrote something → you found TASK | "Continue" before search | ❌ **NO** — they haven't seen the task |
+| You showed TASK → user responded | "Yes/go ahead" after showing | ✅ **YES** |
+| You showed TASK → 30 sec timer | Silence | ✅ **YES** (auto-continue) |
+
+<checklist id="auto_continue">
+- [ ] Showed task state to user (table)
+- [ ] Asked "Continue this task?"
+- [ ] Started timer `sleep 30`
+- [ ] Received confirmation OR timer triggered
+- [ ] ONLY AFTER this continued work
+</checklist>
+
+### Algorithm
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    AUTO_CONTINUE                            │
 ├─────────────────────────────────────────────────────────────┤
-│ 1. Показати користувачу знайдену задачу:                    │
+│ 1. Show user the found task:                                │
 │                                                             │
 │    ╔══════════════════════════════════════════════════════╗ │
-│    ║ 🔍 Знайдено незавершену задачу в пам'яті:            ║ │
+│    ║ 🔍 Found unfinished task in memory:                  ║ │
 │    ║                                                      ║ │
-│    ║ TASK: {WP-id} - {назва}                              ║ │
+│    ║ TASK: {WP-id} - {name}                               ║ │
 │    ║ Status: {status}                                     ║ │
-│    ║ Current: {поточний subtask}                          ║ │
+│    ║ Current: {current subtask}                           ║ │
 │    ║ Progress: {N}/{total} subtasks                       ║ │
-│    ║ Command: {команда для продовження}                   ║ │
+│    ║ Command: {continuation command}                      ║ │
 │    ║                                                      ║ │
-│    ║ Продовжуємо цю задачу?                               ║ │
-│    ║ (автоматичне продовження через 30 сек)               ║ │
+│    ║ Continue this task?                                  ║ │
+│    ║ (auto-continue in 30 sec)                            ║ │
 │    ╚══════════════════════════════════════════════════════╝ │
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
-│ 2. ОДНОЧАСНО запустити таймер:                              │
+│ 2. SIMULTANEOUSLY start timer:                              │
 │                                                             │
 │    bash: sleep 30 && echo "AUTO_CONTINUE_TRIGGER"           │
 │    timeout: 35000ms                                         │
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
-│ 3. Обробка результату:                                      │
+│ 3. Handle result:                                           │
 │                                                             │
-│    IF користувач відповів ДО таймера:                       │
-│       → "так/yes/продовжуй/давай" → продовжити              │
-│       → "ні/no/стоп/інше" → запитати що робити              │
-│       → нова задача → перемкнутись на неї                   │
+│    IF user responded BEFORE timer:                          │
+│       → "yes/continue/go ahead" → continue                  │
+│       → "no/stop/other" → ask what to do                    │
+│       → new task → switch to it                             │
 │                                                             │
-│    ELSE IF таймер спрацював (немає відповіді):              │
-│       → Автоматично продовжити задачу                       │
-│       → Повідомити: "⏳ Продовжую автоматично..."           │
+│    ELSE IF timer triggered (no response):                   │
+│       → Automatically continue task                         │
+│       → Notify: "⏳ Continuing automatically..."            │
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
-│ 4. Запуск команди відновлення:                              │
+│ 4. Launch recovery command:                                 │
 │                                                             │
-│    IF TASK має поле Command (напр. /spec-kitty.implement WP01): │
-│       → Парсити: command="spec-kitty.implement", args="WP01"│
-│       → Шукати файл інструкцій:                             │
-│         find . -name "{command}.md" (в .kittify/ або проекті)│
-│       → Читати інструкції з файлу                           │
-│       → Виконати, підставивши args замість $ARGUMENTS       │
+│    IF TASK has Command field (e.g. /spec-kitty.implement):  │
+│       → Execute slashcommand (see below)                    │
 │                                                             │
 │    ELSE:                                                    │
-│       → Продовжити роботу вручну за Context                 │
+│       → Continue work manually using Context                │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
+```
 
-### 🔧 Що таке Command (slashcommand)
+### 🔧 What is Command (slashcommand)
 
-**Command** — це НЕ bash команда, а посилання на .md файл з інструкціями для агента.
+<slashcommand>
+**Command** — is NOT a bash command, but a reference to an .md file with agent instructions.
 
-**Формат**: `/{prefix}.{action} {arguments}`
-- Приклад: `/spec-kitty.implement WP01`
+**Format**: `/{prefix}.{action} {arguments}`
+- Example: `/spec-kitty.implement WP01`
+</slashcommand>
 
-**Алгоритм виконання:**
+**Execution algorithm:**
 
-1. **Парсити команду:**
+1. **Parse the command:**
    - `/spec-kitty.implement WP01` → command=`spec-kitty.implement`, args=`WP01`
    
-2. **Знайти файл інструкцій в каталозі IDE/CLI інструменту:**
+2. **Find instruction file in IDE/CLI directory:**
    
-   Кожен IDE/CLI має свій каталог для команд:
-   - **OpenCode**: `.opencode/command/{prefix}.{action}.md`
-   - **Cursor**: `.cursor/command/{prefix}.{action}.md`  
-   - **Claude Code**: `.claude/command/{prefix}.{action}.md`
-   - **Codex**: `.codex/command/{prefix}.{action}.md`
-   - **Windsurf**: `.windsurf/command/{prefix}.{action}.md`
+   | IDE/CLI | Path |
+   |---------|------|
+   | OpenCode | `.opencode/command/{command}.md` |
+   | Cursor | `.cursor/command/{command}.md` |
+   | Claude Code | `.claude/command/{command}.md` |
+   | Windsurf | `.windsurf/command/{command}.md` |
    
-   ```bash
-   # Шукати файл команди в каталозі поточного IDE/CLI
-   find . -path "*/.opencode/command/spec-kitty.implement.md" 2>/dev/null
-   ```
-   
-   **Читати файл з каталогу того IDE/CLI, в якому працюєш!**
-   
-3. **Прочитати ВЕСЬ файл і виконати інструкції:**
-   - `$ARGUMENTS` → підставити args (напр. `WP01`)
-   - Файл містить ПОВНИЙ workflow з усіма кроками
-   - Виконувати крок за кроком
+3. **Read the ENTIRE file and execute instructions:**
+   - `$ARGUMENTS` → substitute args (e.g. `WP01`)
+   - File contains FULL workflow with all steps
+   - Execute step by step
 
-**⚠️ КРИТИЧНО:** 
-- `.opencode/command/spec-kitty.implement.md` = **276 рядків** повного workflow
-- `.kittify/.../implement.md` = **12 рядків** тільки bash команда
+<warning>
+`.opencode/command/spec-kitty.implement.md` = **276 lines** of full workflow
+`.kittify/.../implement.md` = **12 lines** just bash command
 
-**Якщо читаєш тільки короткий файл — ти пропускаєш 90% інструкцій!**
+If you only read the short file — you're missing 90% of instructions!
+</warning>
 
-**Правильний приклад для `/spec-kitty.implement WP01`:**
-```
-1. Шукати: .opencode/command/spec-kitty.implement.md
-2. Знайдено: 276 рядків з повним workflow
-3. Читати ВЕСЬ файл
-4. Виконати кроки 1-9 з args="WP01"
-```
-```
+### Output Format (MANDATORY)
 
-#### Приклад виводу для користувача:
+<output_format>
+Start your response EXACTLY like this:
 
 ```
-🔍 **Знайдено незавершену задачу в пам'яті:**
+🔍 **Found unfinished task in memory:**
 
 ┌────────────────────────────────────────────┐
 │ TASK: WP01-poc-validation                  │
@@ -288,50 +352,69 @@ IMPLICATIONS: {наслідки рішення}
 │                                            │
 │ Subtasks:                                  │
 │   [x] T001: Candle PoC - DONE              │
-│   [ ] T002: rmcp PoC ← поточна             │
+│   [ ] T002: rmcp PoC ← current             │
 │   [ ] T003: SurrealDB PoC                  │
 └────────────────────────────────────────────┘
 
-**Продовжуємо цю задачу?**
-_(автоматичне продовження через 30 секунд якщо немає відповіді)_
+**Continue this task?**
+_(auto-continue in 30 seconds if no response)_
 ```
+</output_format>
 
-#### Команда таймера:
-
-```bash
-sleep 30 && echo "AUTO_CONTINUE_TRIGGER"
-```
-
-#### ⛔ ЗАБОРОНЕНО:
-- **ЗАБОРОНЕНО** продовжувати БЕЗ показу інформації користувачу
-- **ЗАБОРОНЕНО** чекати довше 30 секунд
-- **ЗАБОРОНЕНО** ігнорувати відповідь користувача якщо вона надійшла
+<constraints type="auto_continue">
+- FORBIDDEN to continue WITHOUT showing information to user
+- FORBIDDEN to wait longer than 30 seconds
+- FORBIDDEN to ignore user response if it arrived
+</constraints>
 
 ---
 
-### 🔄 TASK_UPDATE: Коли оновлювати пам'ять
+## 🔄 TASK_UPDATE: When to Update Memory
 
-**Оновлювати TASK при КОЖНІЙ значній зміні стану:**
+<task_update>
+Update TASK on EVERY significant state change.
+DO NOT update on every tool call — that's too frequent.
+</task_update>
 
-| Тригер | Дія |
-|--------|-----|
-| Завершено subtask (T001 → T002) | `update_memory` з новим Current |
-| Зустріли blocker | `update_memory` з Blockers, Status=blocked |
-| Прийняли рішення | + `store_memory` DECISION |
-| Користувач каже "стоп/пауза" | `update_memory` Status=paused |
-| Створили/змінили файли | Додати до Context |
-| Завершили WP повністю | `invalidate` + новий TASK для next WP |
+| Trigger | Action |
+|---------|--------|
+| Completed subtask (T001 → T002) | `update_memory` with new Current |
+| Encountered blocker | `update_memory` with Blockers, Status=blocked |
+| Made a decision | + `store_memory` DECISION |
+| User says "stop/pause" | `update_memory` Status=paused |
+| Created/modified files | Add to Context |
+| Fully completed WP | `invalidate` + new TASK for next WP |
 
-#### ⛔ ЗАБОРОНЕНО:
-- **ЗАБОРОНЕНО** оновлювати при кожному tool call (занадто часто)
-- **ЗАБОРОНЕНО** НЕ оновлювати при зміні subtask (занадто рідко)
-- **ЗАБОРОНЕНО** залишати Status=in_progress при блокері
+<checklist id="task_update">
+- [ ] Updating TASK when Current subtask changes
+- [ ] Adding changed files to Context
+- [ ] Creating DECISION for important decisions
+- [ ] Updating Status on blockers
+</checklist>
+
+<constraints type="task_update">
+- FORBIDDEN to update on every tool call (too frequent)
+- FORBIDDEN to NOT update on subtask change (too rare)
+- FORBIDDEN to leave Status=in_progress when blocked
+</constraints>
 
 ---
 
-### ✅ TASK_COMPLETE: Завершення Work Package
+## ✅ TASK_COMPLETE: Completing Work Package
 
-**ВИКОНАТИ ПЕРЕД переходом до наступного WP:**
+<task_complete>
+EXECUTE BEFORE moving to next WP.
+Step order is important!
+</task_complete>
+
+<checklist id="task_complete">
+- [ ] `invalidate(id="{task_memory_id}", reason="WP completed")`
+- [ ] `update_memory(id="{epic_id}")` with Progress: {N+1}/{total}
+- [ ] `store_memory("DECISION: ...")` for important decisions
+- [ ] `store_memory("TASK: ...")` for new WP
+</checklist>
+
+### Algorithm
 
 ```
 1. invalidate(
@@ -339,146 +422,142 @@ sleep 30 && echo "AUTO_CONTINUE_TRIGGER"
      reason="WP completed successfully"
    )
 
-2. update_memory(id="{epic_id}") з:
+2. update_memory(id="{epic_id}") with:
    - Progress: {N+1}/{total}
    - Current WP: {next WP}
    
-3. Якщо були важливі рішення:
+3. If there were important decisions:
    store_memory(content="DECISION: ...", memory_type="semantic")
 
-4. store_memory для нового TASK:
+4. store_memory for new TASK:
    - Status: in_progress
-   - Current: перший subtask
-   - Path: шлях до нового WP файлу
+   - Current: first subtask
+   - Path: path to new WP file
 ```
 
-#### ⛔ ЗАБОРОНЕНО:
-- **ЗАБОРОНЕНО** переходити до нового WP БЕЗ invalidate старого TASK
-- **ЗАБОРОНЕНО** забувати оновити EPIC Progress
-- **ЗАБОРОНЕНО** використовувати delete_memory — ТІЛЬКИ invalidate
+<constraints type="task_complete">
+- FORBIDDEN to move to new WP WITHOUT invalidating old TASK
+- FORBIDDEN to forget updating EPIC Progress
+- FORBIDDEN to use delete_memory — ONLY invalidate
+</constraints>
 
 ---
 
-### 🏁 EPIC_COMPLETE: Завершення Feature
+## 🏁 EPIC_COMPLETE: Completing Feature
 
-**ВИКОНАТИ при закритті всіх WP фічі:**
+<epic_complete>
+EXECUTE when closing all WPs of a feature.
+</epic_complete>
+
+<checklist id="epic_complete">
+- [ ] `invalidate(id="{epic_id}", reason="feature completed")`
+- [ ] `store_memory("PROJECT: ...")` with Last Completed
+- [ ] `store_memory("DECISION: ...")` for each important decision
+</checklist>
+
+### Algorithm
 
 ```
 1. invalidate(id="{epic_id}", reason="feature completed")
 
-2. store_memory(content="PROJECT: ...") з:
+2. store_memory(content="PROJECT: ...") with:
    - Last Completed: {feature-id}
    - Current Epic: None | {next feature}
    
-3. Для КОЖНОГО важливого рішення фічі:
+3. For EACH important decision of the feature:
    store_memory(content="DECISION: ...", memory_type="semantic")
 ```
 
-#### ⛔ ЗАБОРОНЕНО:
-- **ЗАБОРОНЕНО** завершувати epic БЕЗ оновлення PROJECT
-- **ЗАБОРОНЕНО** втрачати DECISION записи
+<constraints type="epic_complete">
+- FORBIDDEN to complete epic WITHOUT updating PROJECT
+- FORBIDDEN to lose DECISION records
+</constraints>
 
 ---
 
-### 🔍 Вибір методу пошуку
+## 🔍 Search Method Selection
 
-| Ситуація | Метод | Чому |
-|----------|-------|------|
-| **Старт сесії** | `search_text` | BM25 точно знаходить префікси |
-| Пошук за ID | `get_memory` | Пряме отримання |
-| Пошук рішень | `search_text("DECISION:")` | Точний match префіксу |
-| Семантичний пошук | `search` або `recall` | Коли не знаємо точних слів |
-| Історія змін | `get_valid_at` | Стан на момент часу |
-| Всі актуальні | `get_valid` | Фільтрує по valid_until |
+| Situation | Method | Why |
+|-----------|--------|-----|
+| **Session start** | `search_text` | BM25 accurately finds prefixes |
+| Search by ID | `get_memory` | Direct retrieval |
+| Search decisions | `search_text("DECISION:")` | Exact prefix match |
+| Semantic search | `search` or `recall` | When exact words unknown |
+| Change history | `get_valid_at` | State at point in time |
+| All current | `get_valid` | Filters by valid_until |
 
-**ВАЖЛИВО**: `recall` використовує гібридний пошук (vector + BM25 + PPR), 
-але для префіксів `search_text` надійніший.
+<important>
+`recall` uses hybrid search (vector + BM25 + PPR), 
+but for prefixes `search_text` is more reliable.
+</important>
 
 ---
 
-### 📊 Граф знань (опціонально)
+## 📊 Knowledge Graph (optional)
 
-**Використовувати для складних проектів з залежностями:**
+<knowledge_graph>
+Use for complex projects with dependencies.
+</knowledge_graph>
 
 ```
-# Створення ієрархії
+# Creating hierarchy
 create_entity(name="Feature:001-memory-mcp", entity_type="feature")
 create_entity(name="WP:WP01", entity_type="work_package")
 create_entity(name="Task:T001", entity_type="task")
 
-# Зв'язки
+# Relations
 create_relation(from="WP:WP01", to="Feature:001", relation_type="belongs_to")
 create_relation(from="Task:T001", to="WP:WP01", relation_type="part_of")
 create_relation(from="WP:WP02", to="WP:WP01", relation_type="depends_on")
 
-# Навігація
+# Navigation
 get_related(entity_id="WP:WP01", depth=2, direction="both")
 ```
 
 ---
 
-### ⚠️ Критичні правила
+## ⚠️ Critical Rules
 
-#### MUST (ОБОВ'ЯЗКОВО):
-- ✅ Викликати `search_text` на старті КОЖНОЇ сесії
-- ✅ Кожен запис починається з префіксу (PROJECT:/EPIC:/TASK:/DECISION:)
-- ✅ Кожен TASK/EPIC має поле `Updated:` з ISO timestamp
-- ✅ TASK має поля: Status, Current, Path
-- ✅ Використовувати `invalidate` замість `delete_memory`
-- ✅ Оновлювати TASK при зміні subtask
-- ✅ Оновлювати EPIC при завершенні WP
-- ✅ Зберігати DECISION з REASON
+### MUST (REQUIRED)
 
-#### MUST NOT (ЗАБОРОНЕНО):
-- ❌ Зберігати записи без префіксу
-- ❌ Починати роботу без пошуку в пам'яті
-- ❌ Питати користувача якщо є TASK з Status=in_progress
-- ❌ Переходити до нового WP без invalidate старого TASK
-- ❌ Використовувати `delete_memory` (тільки invalidate)
-- ❌ Ігнорувати знайдені активні TASK записи
-- ❌ Зберігати дублікати — використовувати `update_memory`
+<must_do>
+- ✅ Call `search_text` at the start of EVERY session
+- ✅ Show task state to user BEFORE continuing (AUTO_CONTINUE)
+- ✅ Every entry starts with prefix (PROJECT:/EPIC:/TASK:/DECISION:)
+- ✅ Every TASK/EPIC has `Updated:` field with ISO timestamp
+- ✅ TASK has fields: Status, Current, Path, Command, Agent
+- ✅ Use `invalidate` instead of `delete_memory`
+- ✅ Update TASK on subtask change
+- ✅ Update EPIC on WP completion
+- ✅ Store DECISION with REASON
+</must_do>
 
----
+### MUST NOT (FORBIDDEN)
 
-### 📋 Чек-листи
-
-#### На старті сесії:
-- [ ] Виконав `search_text("Status: in_progress")`
-- [ ] Виконав `search_text("TASK:")`
-- [ ] Визначив сценарій (active task / paused / new)
-- [ ] Якщо є активний TASK — продовжив БЕЗ питань
-- [ ] Прочитав файл з Path для повного контексту
-
-#### При роботі над задачею:
-- [ ] Оновлюю TASK при зміні Current subtask
-- [ ] Додаю до Context змінені файли
-- [ ] Створюю DECISION при важливих рішеннях
-- [ ] Оновлюю Status при блокерах
-
-#### При завершенні WP:
-- [ ] Виконав `invalidate` для TASK
-- [ ] Оновив EPIC Progress
-- [ ] Створив новий TASK для наступного WP
-- [ ] Зберіг всі DECISION
-
-#### При завершенні Feature:
-- [ ] Виконав `invalidate` для EPIC
-- [ ] Оновив PROJECT стан
-- [ ] Консолідував всі DECISION
+<must_not>
+- ❌ Store entries without prefix
+- ❌ Start work without searching memory
+- ❌ Continue work WITHOUT showing task state to user
+- ❌ Consider user message BEFORE showing task as confirmation
+- ❌ Move to new WP without invalidating old TASK
+- ❌ Use `delete_memory` (only invalidate)
+- ❌ Ignore found active TASK records
+- ❌ Store duplicates — use `update_memory`
+</must_not>
 
 ---
 
-## 📋 Підсумок правил
+## 📋 Rules Summary
 
-| Правило | Опис |
-|---------|------|
-| **Зовнішні репозиторії** | Тільки в `_tmp/` директорії |
-| **Встановлення пакетів** | Використовувати `cargo add`, не редагувати `Cargo.toml` вручну |
-| **Мова спілкування** | Виключно українська |
-| **Пам'ять: старт** | ОБОВ'ЯЗКОВО `recall` + `get_valid` |
-| **Пам'ять: завершення** | ОБОВ'ЯЗКОВО `invalidate` + `store_memory` |
-| **Пам'ять: видалення** | ЗАБОРОНЕНО `delete_memory`, тільки `invalidate` |
+| Rule | Description |
+|------|-------------|
+| **External repositories** | Only in `_tmp/` directory |
+| **Package installation** | Use `cargo add`, don't edit `Cargo.toml` manually |
+| **Communication language** | Ukrainian only |
+| **Memory: start** | REQUIRED `search_text` + show to user |
+| **Memory: completion** | REQUIRED `invalidate` + `store_memory` |
+| **Memory: deletion** | FORBIDDEN `delete_memory`, only `invalidate` |
 
 ---
 
-*Останнє оновлення: 2026-01-06*
+*Last updated: 2026-01-06*
