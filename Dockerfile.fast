@@ -1,0 +1,19 @@
+FROM debian:bookworm-slim
+
+# Install minimal runtime deps (SSL is required for downloading models)
+RUN apt-get update && apt-get install -y \
+    libssl3 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy locally built binary
+COPY memory-mcp-bin /usr/local/bin/memory-mcp
+
+# Data directory
+RUN mkdir -p /data
+ENV DATA_DIR=/data
+ENV LOG_LEVEL=info
+
+CMD ["memory-mcp", "--data-dir", "/data"]
