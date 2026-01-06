@@ -4,7 +4,7 @@ title: "PoC Validation"
 phase: "Phase 0"
 priority: P0
 subtasks: ["T001", "T002", "T003"]
-lane: planned
+lane: "doing"
 dependencies: []
 history:
   - date: 2026-01-06
@@ -177,3 +177,7 @@ All 3 subtasks (T001, T002, T003) are completely independent and can be develope
 - Check that pass criteria are objectively met
 - Review any documented gotchas for implications on main implementation
 - Confirm `_tmp/poc/` structure - NOT in main src/
+
+## Activity Log
+
+- 2026-01-06T16:22:37Z – agent – lane=doing – Started implementation via workflow command

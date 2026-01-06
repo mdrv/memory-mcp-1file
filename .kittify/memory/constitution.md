@@ -1,50 +1,42 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# Memory MCP Server Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Test-Driven Reliability
+**Test-first approach is mandatory.**
+- Pure logic must have unit tests.
+- Storage and Embedding layers must have integration tests.
+- All 84+ tests must pass before final delivery.
+- No "commenting out" failing tests to make the build pass.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Single Responsibility & Modularity
+**Code must be modular and strictly organized.**
+- Follow the defined folder structure: `types/`, `storage/`, `embedding/`, `graph/`, `server/`.
+- No monolithic files; split concerns into focused modules.
+- Dependencies should be injected via Traits (e.g., `StorageBackend`) to allow mocking.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Robust Error Handling
+**Errors must be typed and handled gracefully.**
+- Use `thiserror` for library/domain types to define explicit error variants.
+- Use `anyhow` for application-level error context and bubbling.
+- No `unwrap()` or `expect()` in production code paths; handle all `Result`s.
+- Tool errors must return structured `CallToolResult.error`, not crash the server.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Security & Privacy First
+**Data privacy is paramount.**
+- **Token Protection**: Embeddings must `#[serde(skip_serializing)]` and NEVER be returned in API responses.
+- **Log Hygiene**: Logs must go to `stderr` (stdout is reserved for MCP protocol). No sensitive data in logs.
+- **Isolation**: Project data is strictly isolated; external network calls are limited to model downloads only.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+## Technical Constraints
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
-
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
-
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
-
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+- **Language**: Rust 2021 edition.
+- **Dependencies**: Use `cargo add`; do not edit `Cargo.toml` manually.
+- **Binary Size**: Keep under 30MB (excluding models).
+- **Startup Time**: Server must respond to `tools/list` within 1 second (background model loading).
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes implicit defaults. Changes to these principles require a formal update to this file via the `/spec-kitty.constitution` command.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-01-06
