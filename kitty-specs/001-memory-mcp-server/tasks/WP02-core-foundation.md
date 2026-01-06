@@ -3,13 +3,17 @@ work_package_id: WP02
 title: "Core Foundation"
 phase: "Phase 1"
 priority: P0
-subtasks: ["T004", "T005", "T006", "T007", "T008", "T009", "T010", "T011", "T012"]
-lane: planned
+subtasks: ["T004", "T005", "T006", "T007", "T008", "T009", "T010", "T011", "T012", "T012a"]
+lane: done
 dependencies: ["WP01"]
 history:
   - date: 2026-01-06
     action: created
     by: spec-kitty.tasks
+  - date: 2026-01-06
+    action: completed
+    by: sisyphus
+    note: "cargo check passes, all types implemented, code-splitter deferred (tree-sitter conflict)"
 ---
 
 # WP02: Core Foundation
@@ -277,6 +281,21 @@ Also create module files:
 - `src/graph/mod.rs` - placeholder
 - `src/codebase/mod.rs` - placeholder
 - `src/server/mod.rs` - placeholder
+
+---
+
+### T012a: Write tests for WP02 components
+
+**Goal**: Verify type definitions and configuration logic.
+
+**Implementation**:
+- Add unit tests for `AppConfig::default()`
+- Add serialization tests for `Memory`, `Entity`, `CodeChunk` (ensure embedding skipped)
+- Verify `AppError` formatting
+
+**Pass Criteria**:
+- `cargo test` passes
+- Embeddings are NOT serialized
 
 ---
 

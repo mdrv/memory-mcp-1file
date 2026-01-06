@@ -3,7 +3,7 @@ work_package_id: WP10
 title: "System Tool + Polish"
 phase: "Phase 9"
 priority: P3
-subtasks: ["T063", "T064", "T065", "T066", "T067", "T068", "T069"]
+subtasks: ["T063", "T064", "T065", "T066", "T067", "T068", "T069", "T069a"]
 lane: planned
 dependencies: ["WP07", "WP08", "WP09"]
 history:
@@ -299,6 +299,21 @@ cargo test e2e_test
 - E2E integration: 25+ tests
 
 Document any pre-existing test failures or skipped tests.
+
+---
+
+---
+
+### T069a: Write tests for WP10 components
+
+**Goal**: Complete E2E verification.
+
+**Implementation**:
+- Verify internal status reporting
+- Verify Docker builds locally
+
+**Pass Criteria**:
+- `cargo test` passes
 
 ---
 

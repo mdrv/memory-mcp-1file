@@ -3,8 +3,8 @@ work_package_id: WP03
 title: "Storage Layer"
 phase: "Phase 2"
 priority: P1
-subtasks: ["T013", "T014", "T015", "T016", "T017", "T018", "T019", "T020", "T021", "T022", "T023", "T024", "T025"]
-lane: planned
+subtasks: ["T013", "T014", "T015", "T016", "T017", "T018", "T019", "T020", "T021", "T022", "T023", "T024", "T025", "T025a"]
+lane: done
 dependencies: ["WP02"]
 history:
   - date: 2026-01-06
@@ -30,9 +30,10 @@ This is the data persistence layer. All 20 MCP tools depend on storage operation
 
 ## Subtasks
 
-### T013: Create storage/traits.rs
+### T013: Create storage/traits.rs ✅
 
 **Location**: `src/storage/traits.rs`
+**Status**: DONE
 
 Define the `StorageBackend` trait with async methods:
 
@@ -92,9 +93,10 @@ Add `async-trait = "0.1"` to Cargo.toml.
 
 ---
 
-### T014: Create storage/schema.surql
+### T014: Create storage/schema.surql ✅
 
 **Location**: `src/storage/schema.surql`
+**Status**: DONE
 
 Use the exact schema from `data-model.md` section "SurrealDB Schema (schema.surql)":
 - memories table with HNSW index (DIMENSION 768)
@@ -107,9 +109,10 @@ Use the exact schema from `data-model.md` section "SurrealDB Schema (schema.surq
 
 ---
 
-### T015: Implement SurrealStorage init/connect
+### T015: Implement SurrealStorage init/connect ✅
 
 **Location**: `src/storage/surrealdb.rs`
+**Status**: DONE
 
 ```rust
 pub struct SurrealStorage {
@@ -135,9 +138,10 @@ impl SurrealStorage {
 
 ---
 
-### T016: Implement Memory CRUD
+### T016: Implement Memory CRUD ✅
 
 Methods: `create_memory`, `get_memory`, `update_memory`, `delete_memory`
+**Status**: DONE
 
 **create_memory**:
 - Generate 20-char alphanumeric ID using nanoid pattern
@@ -160,7 +164,9 @@ Methods: `create_memory`, `get_memory`, `update_memory`, `delete_memory`
 
 ---
 
-### T017: Implement Memory list/count
+### T017: Implement Memory list/count ✅
+
+**Status**: DONE
 
 **list_memories**:
 ```sql
@@ -176,7 +182,9 @@ SELECT count() FROM memories GROUP ALL
 
 ---
 
-### T018: Implement Vector search
+### T018: Implement Vector search ✅
+
+**Status**: DONE
 
 **vector_search**:
 ```sql
@@ -200,7 +208,9 @@ LIMIT $limit
 
 ---
 
-### T019: Implement BM25 search
+### T019: Implement BM25 search ✅
+
+**Status**: DONE
 
 **bm25_search**:
 ```sql
@@ -216,7 +226,9 @@ LIMIT $limit
 
 ---
 
-### T020: Implement Entity operations
+### T020: Implement Entity operations ✅
+
+**Status**: DONE
 
 **create_entity**:
 - Generate ID
@@ -230,7 +242,9 @@ LIMIT $limit
 
 ---
 
-### T021: Implement Relation operations
+### T021: Implement Relation operations ✅
+
+**Status**: DONE
 
 **create_relation**:
 ```sql
@@ -250,7 +264,9 @@ SET relation_type = $type, weight = $weight
 
 ---
 
-### T022: Implement Temporal operations
+### T022: Implement Temporal operations ✅
+
+**Status**: DONE
 
 **get_valid**:
 ```sql
@@ -277,7 +293,9 @@ WHERE id = $id
 
 ---
 
-### T023: Implement Code operations
+### T023: Implement Code operations ✅
+
+**Status**: DONE
 
 **create_code_chunk**: Single insert with embedding
 
@@ -292,7 +310,9 @@ DELETE FROM code_chunks WHERE project_id = $project_id
 
 ---
 
-### T024: Implement Index status
+### T024: Implement Index status ✅
+
+**Status**: DONE
 
 **get_index_status**: SELECT by project_id
 
@@ -305,7 +325,9 @@ SELECT DISTINCT project_id FROM code_chunks
 
 ---
 
-### T025: Implement health_check
+### T025: Implement health_check ✅
+
+**Status**: DONE
 
 ```rust
 async fn health_check(&self) -> Result<bool> {
@@ -313,6 +335,22 @@ async fn health_check(&self) -> Result<bool> {
     Ok(true)
 }
 ```
+
+---
+
+---
+
+### T025a: Write tests for WP03 components
+
+**Goal**: Verify storage implementations.
+
+**Implementation**:
+- Add integration tests for `SurrealStorage` using `tempdir`
+- Verify CRUD operations
+- Verify Vector Search returns expected results
+
+**Pass Criteria**:
+- `cargo test --test storage_integration` passes
 
 ---
 

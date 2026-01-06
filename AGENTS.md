@@ -390,12 +390,15 @@ DO NOT update on every tool call — that's too frequent.
 - [ ] Adding changed files to Context
 - [ ] Creating DECISION for important decisions
 - [ ] Updating Status on blockers
+- [ ] **TRIPLE SYNC:** Sync status to Project Documents (e.g. TASK.md)
+- [ ] **TRIPLE SYNC:** Update active Task Management Tool (CLI/IDE) status
 </checklist>
 
 <constraints type="task_update">
 - FORBIDDEN to update on every tool call (too frequent)
 - FORBIDDEN to NOT update on subtask change (too rare)
 - FORBIDDEN to leave Status=in_progress when blocked
+- FORBIDDEN to have conflicting status between Memory, Task Tools, and Documents
 </constraints>
 
 ---
@@ -412,6 +415,8 @@ Step order is important!
 - [ ] `update_memory(id="{epic_id}")` with Progress: {N+1}/{total}
 - [ ] `store_memory("DECISION: ...")` for important decisions
 - [ ] `store_memory("TASK: ...")` for new WP
+- [ ] **TRIPLE SYNC:** Update active Task Management Tool (CLI/IDE) status
+- [ ] **TRIPLE SYNC:** Mark as Completed in all relevant Project Documents
 </checklist>
 
 ### Algorithm
@@ -453,6 +458,8 @@ EXECUTE when closing all WPs of a feature.
 - [ ] `invalidate(id="{epic_id}", reason="feature completed")`
 - [ ] `store_memory("PROJECT: ...")` with Last Completed
 - [ ] `store_memory("DECISION: ...")` for each important decision
+- [ ] **TRIPLE SYNC:** Update active Task Management Tool (CLI/IDE) status
+- [ ] **TRIPLE SYNC:** Mark Epic as Done in active Task Management Tools (CLI/IDE)
 </checklist>
 
 ### Algorithm

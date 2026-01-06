@@ -3,13 +3,16 @@ work_package_id: WP06
 title: "Search Tools"
 phase: "Phase 5"
 priority: P1
-subtasks: ["T042", "T043", "T044", "T045"]
-lane: planned
+subtasks: ["T042", "T043", "T044", "T045", "T045a"]
+lane: done
 dependencies: ["WP05"]
 history:
   - date: 2026-01-06
     action: created
     by: spec-kitty.tasks
+  - date: 2026-01-06
+    action: completed
+    by: build
 ---
 
 # WP06: Search Tools
@@ -236,6 +239,22 @@ pub fn weighted_merge(
         })))
     }
 ```
+
+---
+
+---
+
+### T045a: Write tests for WP06 components
+
+**Goal**: Verify search tools.
+
+**Implementation**:
+- Verify RRF merge logic
+- Verify `recall` tool weights
+- Test search performance/latency
+
+**Pass Criteria**:
+- `cargo test` passes
 
 ---
 

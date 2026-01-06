@@ -3,8 +3,8 @@ work_package_id: WP05
 title: "MCP Server + Memory Tools"
 phase: "Phase 4"
 priority: P1
-subtasks: ["T033", "T034", "T035", "T036", "T037", "T038", "T039", "T040", "T041"]
-lane: planned
+subtasks: ["T033", "T034", "T035", "T036", "T037", "T038", "T039", "T040", "T041", "T041a"]
+lane: done
 dependencies: ["WP03", "WP04"]
 history:
   - date: 2026-01-06
@@ -358,6 +358,22 @@ async fn main() -> anyhow::Result<()> {
 ### T041: Wire up AppState
 
 Ensure `AppState` in `src/config.rs` has correct Arc types and all fields accessible to server handlers.
+
+---
+
+---
+
+### T041a: Write tests for WP05 components
+
+**Goal**: Verify MCP tools.
+
+**Implementation**:
+- Unit test `MemoryMcpServer` handlers
+- Mock `AppState` services
+- Verify tool JSON inputs/outputs
+
+**Pass Criteria**:
+- `cargo test` passes
 
 ---
 

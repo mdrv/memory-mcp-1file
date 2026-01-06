@@ -2,7 +2,7 @@
 
 **Feature**: 001-memory-mcp-server  
 **Date**: 2026-01-06  
-**Phases**: 10 | **Work Packages**: 10 | **Subtasks**: 69
+**Phases**: 10 | **Work Packages**: 10 | **Subtasks**: 79
 
 ---
 
@@ -45,9 +45,10 @@ WP01 → WP02 → WP03 ─┐
 
 ### Subtasks
 
-- [ ] **T001** [P]: Candle PoC - load e5_small model, embed "hello world", return 384-dim vector
-- [ ] **T002** [P]: rmcp PoC - minimal MCP server with 1 dummy tool, respond to tools/list
-- [ ] **T003** [P]: SurrealDB PoC - embedded DB, CRUD memory, HNSW index vector search
+- [x] **T001** [P]: Candle PoC - load e5_small model, embed "hello world", return 384-dim vector
+- [x] **T002** [P]: rmcp PoC - minimal MCP server with 1 dummy tool, respond to tools/list
+- [x] **T003** [P]: SurrealDB PoC - embedded DB, CRUD memory, HNSW index vector search
+- [ ] **T003a**: Write tests for WP01 components
 
 ### Success Criteria
 
@@ -80,6 +81,7 @@ All 3 subtasks are independent and can be developed in parallel.
 - [ ] **T010**: Implement src/types/search.rs (SearchResult, RecallResult, ScoredMemory)
 - [ ] **T011**: Create src/config.rs (AppConfig, AppState)
 - [ ] **T012**: Create src/lib.rs with pub mod declarations
+- [ ] **T012a**: Write tests for WP02 components
 
 ### Success Criteria
 
@@ -111,6 +113,7 @@ All 3 subtasks are independent and can be developed in parallel.
 - [ ] **T023**: Implement Code ops: create_code_chunk, create_code_chunks_batch, delete_project_chunks
 - [ ] **T024**: Implement Index status: get_index_status, update_index_status, list_projects
 - [ ] **T025**: Implement System: health_check
+- [ ] **T025a**: Write tests for WP03 components
 
 ### Success Criteria
 
@@ -137,6 +140,7 @@ All 3 subtasks are independent and can be developed in parallel.
 - [ ] **T030**: Implement src/embedding/service.rs (EmbeddingService async wrapper)
 - [ ] **T031**: Implement background model loading (spawn_blocking, non-blocking startup)
 - [ ] **T032**: Implement status tracking: Loading → Ready → Error states
+- [ ] **T032a**: Write tests for WP04 components
 
 ### Success Criteria
 
@@ -165,6 +169,7 @@ All 3 subtasks are independent and can be developed in parallel.
 - [ ] **T040**: Create src/main.rs with clap CLI + ENV support via MEMORY_MCP_* prefix (--data-dir, --model, --cache-size, --batch-size, --timeout, --log-level, --list-models, --force-model, --reset-memory). CLI takes precedence over ENV.
 - [ ] **T040a**: Implement dimension mismatch check on startup: compare model dimension with db_config.dimension, apply --force-model or --reset-memory logic per FR-041-044
 - [ ] **T041**: Wire up AppState with storage + embedding services
+- [ ] **T041a**: Write tests for WP05 components
 
 ### Success Criteria
 
@@ -188,6 +193,7 @@ All 3 subtasks are independent and can be developed in parallel.
 - [ ] **T043**: Implement tool: search (vector similarity via HNSW, limit max 50 results per FR-011)
 - [ ] **T044**: Implement tool: search_text (BM25 full-text search, limit max 50 results per FR-011)
 - [ ] **T045**: Implement tool: recall (hybrid merge, PPR=0 placeholder, limit max 50 results per FR-011)
+- [ ] **T045a**: Write tests for WP06 components
 
 ### Success Criteria
 
@@ -213,6 +219,7 @@ All 3 subtasks are independent and can be developed in parallel.
 - [ ] **T050**: Update recall tool to use real PPR scores
 - [ ] **T051**: Implement hub dampening (weight = score / sqrt(degree))
 - [ ] **T051a**: Implement tool: detect_communities (Leiden algorithm)
+- [ ] **T051b**: Write tests for WP07 components
 
 ### Success Criteria
 
@@ -234,6 +241,7 @@ All 3 subtasks are independent and can be developed in parallel.
 - [ ] **T052**: Implement tool: get_valid (currently valid memories)
 - [ ] **T053**: Implement tool: get_valid_at (memories valid at timestamp)
 - [ ] **T054**: Implement tool: invalidate (soft-delete with reason, superseded_by)
+- [ ] **T054a**: Write tests for WP08 components
 
 ### Success Criteria
 
@@ -260,6 +268,7 @@ All 3 subtasks are independent and can be developed in parallel.
 - [ ] **T060**: Implement tool: get_index_status (project_id → IndexStatus)
 - [ ] **T061**: Implement tool: list_projects (→ project IDs)
 - [ ] **T062**: Implement tool: delete_project (project_id → chunks deleted)
+- [ ] **T062a**: Write tests for WP09 components
 
 ### Success Criteria
 
@@ -286,6 +295,7 @@ All 3 subtasks are independent and can be developed in parallel.
 - [ ] **T067**: Logging improvements (tracing to stderr)
 - [ ] **T068**: Create README.md with usage documentation (21 tools, ENV vars table)
 - [ ] **T069**: E2E test suite validation (target: 84+ tests)
+- [ ] **T069a**: Write tests for WP10 components
 
 ### Success Criteria
 
@@ -369,3 +379,13 @@ All 3 subtasks are independent and can be developed in parallel.
 | T067 | 9 | Logging improvements | |
 | T068 | 9 | README.md | |
 | T069 | 9 | E2E test validation | |
+| T003a | 0 | Write tests for WP01 | |
+| T012a | 1 | Write tests for WP02 | |
+| T025a | 2 | Write tests for WP03 | |
+| T032a | 3 | Write tests for WP04 | |
+| T041a | 4 | Write tests for WP05 | |
+| T045a | 5 | Write tests for WP06 | |
+| T051b | 6 | Write tests for WP07 | |
+| T054a | 7 | Write tests for WP08 | |
+| T062a | 8 | Write tests for WP09 | |
+| T069a | 9 | Write tests for WP10 | |

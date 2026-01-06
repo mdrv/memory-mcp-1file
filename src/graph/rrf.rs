@@ -1,0 +1,125 @@
+//! Reciprocal Rank Fusion (RRF) for hybrid search
+//!
+//! Merges results from multiple ranking sources (vector, BM25, PPR)
+//! into a single ranked list using RRF algorithm.
+
+use std::collections::HashMap;
+
+/// RRF constant (standard value from literature)
+pub const RRF_K: f32 = 60.0;
+
+/// Default weights for hybrid search
+pub const DEFAULT_VECTOR_WEIGHT: f32 = 0.40;
+pub const DEFAULT_BM25_WEIGHT: f32 = 0.15;
+pub const DEFAULT_PPR_WEIGHT: f32 = 0.45;
+
+/// Individual score components for a merged result
+#[derive(Debug, Clone, Default)]
+pub struct RrfScores {
+    pub vector_score: f32,
+    pub bm25_score: f32,
+    pub ppr_score: f32,
+    pub combined_score: f32,
+}
+
+/// Merge multiple ranked lists using Reciprocal Rank Fusion
+///
+/// Each input is a Vec of (id, score) tuples, already sorted by score descending.
+/// Returns merged results sorted by combined RRF score.
+///
+/// # Arguments
+/// * `vector_results` - Results from vector similarity search
+/// * `bm25_results` - Results from BM25 text search
+/// * `ppr_results` - Results from Personalized PageRank (can be empty)
+/// * `vector_weight` - Weight for vector component (default 0.40)
+/// * `bm25_weight` - Weight for BM25 component (default 0.15)
+/// * `ppr_weight` - Weight for PPR component (default 0.45)
+/// * `limit` - Maximum results to return
+pub fn rrf_merge(
+    vector_results: &[(String, f32)],
+    bm25_results: &[(String, f32)],
+    ppr_results: &[(String, f32)],
+    vector_weight: f32,
+    bm25_weight: f32,
+    ppr_weight: f32,
+    limit: usize,
+) -> Vec<(String, RrfScores)> {
+    let mut scores: HashMap<String, RrfScores> = HashMap::new();
+
+    for (rank, (id, original_score)) in vector_results.iter().enumerate() {
+        let rrf_score = vector_weight / (RRF_K + rank as f32 + 1.0);
+        let entry = scores.entry(id.clone()).or_default();
+        entry.vector_score = *original_score;
+        entry.combined_score += rrf_score;
+    }
+
+    for (rank, (id, original_score)) in bm25_results.iter().enumerate() {
+        let rrf_score = bm25_weight / (RRF_K + rank as f32 + 1.0);
+        let entry = scores.entry(id.clone()).or_default();
+        entry.bm25_score = *original_score;
+        entry.combined_score += rrf_score;
+    }
+
+    for (rank, (id, original_score)) in ppr_results.iter().enumerate() {
+        let rrf_score = ppr_weight / (RRF_K + rank as f32 + 1.0);
+        let entry = scores.entry(id.clone()).or_default();
+        entry.ppr_score = *original_score;
+        entry.combined_score += rrf_score;
+    }
+
+    let mut results: Vec<_> = scores.into_iter().collect();
+    results.sort_by(|a, b| b.1.combined_score.partial_cmp(&a.1.combined_score).unwrap());
+    results.truncate(limit);
+    results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rrf_merge_empty() {
+        let results = rrf_merge(&[], &[], &[], 0.4, 0.15, 0.45, 10);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_rrf_merge_single_source() {
+        let vector = vec![
+            ("a".to_string(), 0.9),
+            ("b".to_string(), 0.8),
+            ("c".to_string(), 0.7),
+        ];
+        let results = rrf_merge(&vector, &[], &[], 0.4, 0.15, 0.45, 10);
+        
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].0, "a");
+        assert!(results[0].1.vector_score > 0.0);
+        assert_eq!(results[0].1.bm25_score, 0.0);
+    }
+
+    #[test]
+    fn test_rrf_merge_multiple_sources() {
+        let vector = vec![
+            ("a".to_string(), 0.9),
+            ("b".to_string(), 0.8),
+        ];
+        let bm25 = vec![
+            ("b".to_string(), 0.95),
+            ("c".to_string(), 0.7),
+        ];
+        let results = rrf_merge(&vector, &bm25, &[], 0.4, 0.15, 0.45, 10);
+        assert_eq!(results.len(), 3);
+        let b_result = results.iter().find(|(id, _)| id == "b").unwrap();
+        assert!(b_result.1.vector_score > 0.0);
+        assert!(b_result.1.bm25_score > 0.0);
+    }
+
+    #[test]
+    fn test_rrf_respects_limit() {
+        let vector: Vec<_> = (0..20).map(|i| (format!("id{i}"), 1.0 - i as f32 * 0.01)).collect();
+        let results = rrf_merge(&vector, &[], &[], 0.4, 0.15, 0.45, 5);
+        
+        assert_eq!(results.len(), 5);
+    }
+}

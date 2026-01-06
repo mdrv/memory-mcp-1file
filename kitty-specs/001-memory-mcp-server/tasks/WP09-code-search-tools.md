@@ -3,7 +3,7 @@ work_package_id: WP09
 title: "Code Search Tools"
 phase: "Phase 8"
 priority: P3
-subtasks: ["T055", "T056", "T057", "T058", "T059", "T060", "T061", "T062"]
+subtasks: ["T055", "T056", "T057", "T058", "T059", "T060", "T061", "T062", "T062a"]
 lane: planned
 dependencies: ["WP05"]
 history:
@@ -468,6 +468,22 @@ pub struct IndexResult {
         })))
     }
 ```
+
+---
+
+---
+
+### T062a: Write tests for WP09 components
+
+**Goal**: Verify code search.
+
+**Implementation**:
+- Verify tree-sitter chunking boundaries
+- Verify context injection
+- Verify `.memoryignore` handling
+
+**Pass Criteria**:
+- `cargo test` passes
 
 ---
 

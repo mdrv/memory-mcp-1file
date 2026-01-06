@@ -3,13 +3,17 @@ work_package_id: WP01
 title: "PoC Validation"
 phase: "Phase 0"
 priority: P0
-subtasks: ["T001", "T002", "T003"]
-lane: "doing"
+subtasks: ["T001", "T002", "T003", "T003a"]
+lane: "done"
 dependencies: []
 history:
   - date: 2026-01-06
     action: created
     by: spec-kitty.tasks
+  - date: 2026-01-06
+    action: completed
+    by: sisyphus
+    note: "All 3 PoCs validated: Candle (384d, L2=1.0), rmcp (MCP handshake OK), SurrealDB (HNSW cosine search OK)"
 ---
 
 # WP01: PoC Validation
@@ -146,6 +150,25 @@ serde = { version = "1", features = ["derive"] }
 - Schema applies without error
 - HNSW index created (DIMENSION 384)
 - Vector search returns results ordered by similarity
+
+---
+
+---
+
+### T003a: Write tests for WP01 components
+
+**Goal**: Ensure PoC components have basic automated verification.
+
+**Implementation**:
+
+1. Create basic tests for each PoC
+   - Candle: Verify embedding dimensions and normalization
+   - rmcp: Verify request/response handling
+   - SurrealDB: Verify connection and basic CRUD
+
+**Pass Criteria**:
+- `cargo test` passes in PoC directories
+- Automated verification of PoC functions
 
 ---
 

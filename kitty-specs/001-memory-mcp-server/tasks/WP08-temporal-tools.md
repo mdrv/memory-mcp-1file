@@ -3,7 +3,7 @@ work_package_id: WP08
 title: "Temporal Tools"
 phase: "Phase 7"
 priority: P2
-subtasks: ["T052", "T053", "T054"]
+subtasks: ["T052", "T053", "T054", "T054a"]
 lane: planned
 dependencies: ["WP05"]
 history:
@@ -150,6 +150,21 @@ RETURN AFTER
 ```
 
 Note: `superseded_by` is stored in metadata or a separate field if needed for traceability.
+
+---
+
+---
+
+### T054a: Write tests for WP08 components
+
+**Goal**: Verify temporal logic.
+
+**Implementation**:
+- Verify `get_valid_at` with historical timestamps
+- Verify invalidation logic (soft delete)
+
+**Pass Criteria**:
+- `cargo test` passes
 
 ---
 

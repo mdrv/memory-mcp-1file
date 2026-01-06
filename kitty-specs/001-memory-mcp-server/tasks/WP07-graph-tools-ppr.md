@@ -3,7 +3,7 @@ work_package_id: WP07
 title: "Graph Tools + PPR"
 phase: "Phase 6"
 priority: P2
-subtasks: ["T046", "T047", "T048", "T049", "T050", "T051"]
+subtasks: ["T046", "T047", "T048", "T049", "T050", "T051", "T051b"]
 lane: planned
 dependencies: ["WP06"]
 history:
@@ -306,6 +306,22 @@ for memory in &mut scored_memories {
 Already included in T046 (`apply_hub_dampening` function).
 
 Ensure it's called in the recall flow to prevent highly-connected nodes from dominating results.
+
+---
+
+---
+
+### T051b: Write tests for WP07 components
+
+**Goal**: Verify graph operations.
+
+**Implementation**:
+- Verify PPR convergence
+- Verify `get_related` traversal depth
+- Verify community detection (if implemented)
+
+**Pass Criteria**:
+- `cargo test` passes
 
 ---
 

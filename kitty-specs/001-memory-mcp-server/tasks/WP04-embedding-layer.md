@@ -3,8 +3,8 @@ work_package_id: WP04
 title: "Embedding Layer"
 phase: "Phase 3"
 priority: P1
-subtasks: ["T026", "T027", "T028", "T029", "T030", "T031", "T032"]
-lane: planned
+subtasks: ["T026", "T027", "T028", "T029", "T030", "T031", "T032", "T032a"]
+lane: done
 dependencies: ["WP02"]
 history:
   - date: 2026-01-06
@@ -29,9 +29,10 @@ This layer provides vector embeddings for memories, entities, and code chunks. T
 
 ## Subtasks
 
-### T026: Create embedding/config.rs
+### T026: Create embedding/config.rs ✅
 
 **Location**: `src/embedding/config.rs`
+**Status**: DONE
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,9 +97,10 @@ impl Default for EmbeddingConfig {
 
 ---
 
-### T027: Implement EmbeddingEngine - Model Loading
+### T027: Implement EmbeddingEngine - Model Loading ✅
 
 **Location**: `src/embedding/engine.rs`
+**Status**: DONE
 
 ```rust
 use candle_core::{Device, Tensor};
@@ -155,9 +157,10 @@ impl EmbeddingEngine {
 
 ---
 
-### T028: Implement embed() with mean pooling
+### T028: Implement embed() with mean pooling ✅
 
 **Location**: `src/embedding/engine.rs` (continued)
+**Status**: DONE
 
 ```rust
 impl EmbeddingEngine {
@@ -201,9 +204,10 @@ impl EmbeddingEngine {
 
 ---
 
-### T029: Implement EmbeddingCache
+### T029: Implement EmbeddingCache ✅
 
 **Location**: `src/embedding/cache.rs`
+**Status**: DONE
 
 ```rust
 use lru::LruCache;
@@ -270,9 +274,10 @@ pub struct CacheStats {
 
 ---
 
-### T030: Implement EmbeddingService
+### T030: Implement EmbeddingService ✅
 
 **Location**: `src/embedding/service.rs`
+**Status**: DONE
 
 ```rust
 use std::sync::Arc;
@@ -339,9 +344,10 @@ impl EmbeddingService {
 
 ---
 
-### T031: Implement background model loading
+### T031: Implement background model loading ✅
 
 **Location**: `src/embedding/service.rs` (continued)
+**Status**: DONE
 
 ```rust
 impl EmbeddingService {
@@ -375,9 +381,10 @@ impl EmbeddingService {
 
 ---
 
-### T032: Implement status tracking
+### T032: Implement status tracking ✅
 
 **Location**: `src/embedding/mod.rs`
+**Status**: DONE
 
 ```rust
 mod cache;
@@ -398,6 +405,22 @@ pub enum EmbeddingStatus {
     Error,
 }
 ```
+
+---
+
+---
+
+### T032a: Write tests for WP04 components
+
+**Goal**: Verify embedding service.
+
+**Implementation**:
+- Unit test `EmbeddingEngine` (mocking or using small model)
+- Verify `EmbeddingCache` logic (hits/misses)
+- Verify L2 normalization
+
+**Pass Criteria**:
+- `cargo test` passes
 
 ---
 
