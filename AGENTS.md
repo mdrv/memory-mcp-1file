@@ -460,6 +460,7 @@ EXECUTE when closing all WPs of a feature.
 - [ ] `store_memory("DECISION: ...")` for each important decision
 - [ ] **TRIPLE SYNC:** Update active Task Management Tool (CLI/IDE) status
 - [ ] **TRIPLE SYNC:** Mark Epic as Done in active Task Management Tools (CLI/IDE)
+- [ ] **GIT COMMIT (MANDATORY):** Commit all changes for the completed feature
 </checklist>
 
 ### Algorithm
@@ -473,11 +474,25 @@ EXECUTE when closing all WPs of a feature.
    
 3. For EACH important decision of the feature:
    store_memory(content="DECISION: ...", memory_type="semantic")
+
+4. GIT COMMIT (MANDATORY):
+   git add -A
+   git commit -m "feat({feature-id}): complete {feature description}"
+   
+   Commit message format:
+   - feat({id}): for new features
+   - fix({id}): for bug fix features
+   - refactor({id}): for refactoring features
+   
+   Include in commit body (optional):
+   - List of completed WPs
+   - Key decisions made
 ```
 
 <constraints type="epic_complete">
 - FORBIDDEN to complete epic WITHOUT updating PROJECT
 - FORBIDDEN to lose DECISION records
+- FORBIDDEN to complete epic WITHOUT git commit of all changes
 </constraints>
 
 ---
