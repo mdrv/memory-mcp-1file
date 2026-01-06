@@ -1,8 +1,9 @@
-FROM debian:bookworm-slim
+FROM debian:testing-slim
 
-# Install minimal runtime deps (SSL is required for downloading models)
+# Install minimal runtime deps
+# openssl pulls in the correct libssl version (likely libssl3t64)
 RUN apt-get update && apt-get install -y \
-    libssl3 \
+    openssl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
