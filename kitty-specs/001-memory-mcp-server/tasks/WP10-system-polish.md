@@ -4,12 +4,15 @@ title: "System Tool + Polish"
 phase: "Phase 9"
 priority: P3
 subtasks: ["T063", "T064", "T065", "T066", "T067", "T068", "T069", "T069a"]
-lane: planned
+lane: done
 dependencies: ["WP07", "WP08", "WP09"]
 history:
   - date: 2026-01-06
     action: created
     by: spec-kitty.tasks
+  - date: 2026-01-06
+    action: completed
+    by: build
 ---
 
 # WP10: System Tool + Polish

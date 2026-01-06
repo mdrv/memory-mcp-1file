@@ -4,12 +4,15 @@ title: "Graph Tools + PPR"
 phase: "Phase 6"
 priority: P2
 subtasks: ["T046", "T047", "T048", "T049", "T050", "T051", "T051b"]
-lane: planned
+lane: done
 dependencies: ["WP06"]
 history:
   - date: 2026-01-06
     action: created
     by: spec-kitty.tasks
+  - date: 2026-01-06
+    action: completed
+    by: build
 ---
 
 # WP07: Graph Tools + PPR

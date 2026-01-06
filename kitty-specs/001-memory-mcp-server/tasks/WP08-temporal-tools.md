@@ -4,12 +4,15 @@ title: "Temporal Tools"
 phase: "Phase 7"
 priority: P2
 subtasks: ["T052", "T053", "T054", "T054a"]
-lane: planned
+lane: done
 dependencies: ["WP05"]
 history:
   - date: 2026-01-06
     action: created
     by: spec-kitty.tasks
+  - date: 2026-01-06
+    action: completed
+    by: build
 ---
 
 # WP08: Temporal Tools

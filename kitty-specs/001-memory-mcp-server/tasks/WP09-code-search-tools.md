@@ -4,12 +4,15 @@ title: "Code Search Tools"
 phase: "Phase 8"
 priority: P3
 subtasks: ["T055", "T056", "T057", "T058", "T059", "T060", "T061", "T062", "T062a"]
-lane: planned
+lane: done
 dependencies: ["WP05"]
 history:
   - date: 2026-01-06
     action: created
     by: spec-kitty.tasks
+  - date: 2026-01-06
+    action: completed
+    by: build
 ---
 
 # WP09: Code Search Tools

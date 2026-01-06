@@ -84,3 +84,16 @@ impl Entity {
         self
     }
 }
+
+impl std::str::FromStr for Direction {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "outgoing" | "out" => Ok(Direction::Outgoing),
+            "incoming" | "in" => Ok(Direction::Incoming),
+            "both" => Ok(Direction::Both),
+            _ => Ok(Direction::default()),
+        }
+    }
+}
