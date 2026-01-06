@@ -4,12 +4,13 @@ use rmcp::model::{CallToolResult, Content};
 use serde_json::json;
 
 use crate::config::AppState;
-use crate::embedding::EmbeddingStatus;
 use crate::server::params::{
     DeleteProjectParams, GetIndexStatusParams, IndexProjectParams, ListProjectsParams,
     SearchCodeParams,
 };
 use crate::storage::StorageBackend;
+
+use super::embedding_loading_response;
 
 pub async fn index_project(
     state: &Arc<AppState>,
@@ -44,10 +45,9 @@ pub async fn search_code(
     state: &Arc<AppState>,
     params: SearchCodeParams,
 ) -> anyhow::Result<CallToolResult> {
-    if state.embedding.status() != EmbeddingStatus::Ready {
-        return Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": "Embedding service not ready" }).to_string(),
-        )]));
+    let status = state.embedding.status().await;
+    if !status.is_ready() {
+        return Ok(embedding_loading_response(&status));
     }
 
     let query_embedding = state.embedding.embed(&params.query).await?;

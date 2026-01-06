@@ -27,13 +27,13 @@ impl TestContext {
             model: ModelType::Mock,
             cache_size: 100,
             batch_size: 10,
+            cache_dir: None,
         };
         let embedding = Arc::new(EmbeddingService::new(embedding_config));
         embedding.start_loading();
 
-        // Wait for embedding service to be ready (usually instant for Mock)
         let mut attempts = 0;
-        while embedding.status() != crate::embedding::EmbeddingStatus::Ready {
+        while !embedding.is_ready() {
             if attempts > 10 {
                 panic!("Mock embedding service failed to start");
             }

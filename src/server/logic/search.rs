@@ -4,7 +4,6 @@ use rmcp::model::{CallToolResult, Content};
 use serde_json::json;
 
 use crate::config::AppState;
-use crate::embedding::EmbeddingStatus;
 use crate::graph::{
     apply_hub_dampening, personalized_page_rank, rrf_merge, DEFAULT_BM25_WEIGHT,
     DEFAULT_PPR_WEIGHT, DEFAULT_VECTOR_WEIGHT, PPR_DAMPING, PPR_MAX_ITER, PPR_TOLERANCE,
@@ -13,11 +12,12 @@ use crate::server::params::{RecallParams, SearchParams};
 use crate::storage::StorageBackend;
 use crate::types::{MemoryType, ScoredMemory};
 
+use super::embedding_loading_response;
+
 pub async fn search(state: &Arc<AppState>, params: SearchParams) -> anyhow::Result<CallToolResult> {
-    if state.embedding.status() != EmbeddingStatus::Ready {
-        return Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": "Embedding service not ready" }).to_string(),
-        )]));
+    let status = state.embedding.status().await;
+    if !status.is_ready() {
+        return Ok(embedding_loading_response(&status));
     }
 
     let query_embedding = state.embedding.embed(&params.query).await?;
@@ -70,10 +70,9 @@ pub async fn recall(state: &Arc<AppState>, params: RecallParams) -> anyhow::Resu
     use petgraph::graph::{DiGraph, NodeIndex};
     use std::collections::HashMap;
 
-    if state.embedding.status() != EmbeddingStatus::Ready {
-        return Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": "Embedding service not ready" }).to_string(),
-        )]));
+    let status = state.embedding.status().await;
+    if !status.is_ready() {
+        return Ok(embedding_loading_response(&status));
     }
 
     let query_embedding = state.embedding.embed(&params.query).await?;
@@ -233,7 +232,7 @@ pub async fn recall(state: &Arc<AppState>, params: RecallParams) -> anyhow::Resu
 mod tests {
     use super::*;
     use crate::test_utils::TestContext;
-    use crate::types::{Memory, MemoryType};
+    use crate::types::Memory;
 
     #[tokio::test]
     async fn test_search_logic() {

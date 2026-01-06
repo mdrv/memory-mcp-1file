@@ -4,7 +4,6 @@ use std::sync::Arc;
 use tokio::fs;
 
 use crate::config::AppState;
-use crate::embedding::EmbeddingStatus;
 use crate::storage::StorageBackend;
 use crate::types::{IndexState, IndexStatus};
 use crate::Result;
@@ -43,7 +42,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
         let chunks = chunk_file(file_path, &content, &project_id);
 
         for mut chunk in chunks {
-            if state.embedding.status() == EmbeddingStatus::Ready {
+            if state.embedding.is_ready() {
                 if let Ok(emb) = state.embedding.embed(&chunk.content).await {
                     chunk.embedding = Some(emb);
                 }

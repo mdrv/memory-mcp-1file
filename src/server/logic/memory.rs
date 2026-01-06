@@ -4,7 +4,6 @@ use rmcp::model::{CallToolResult, Content};
 use serde_json::json;
 
 use crate::config::AppState;
-use crate::embedding::EmbeddingStatus;
 use crate::server::params::{
     DeleteMemoryParams, GetMemoryParams, GetValidAtParams, GetValidParams, InvalidateParams,
     ListMemoriesParams, StoreMemoryParams, UpdateMemoryParams,
@@ -12,14 +11,15 @@ use crate::server::params::{
 use crate::storage::StorageBackend;
 use crate::types::{Memory, MemoryType, MemoryUpdate};
 
+use super::{embedding_loading_response, strip_embedding, strip_embeddings};
+
 pub async fn store_memory(
     state: &Arc<AppState>,
     params: StoreMemoryParams,
 ) -> anyhow::Result<CallToolResult> {
-    if state.embedding.status() != EmbeddingStatus::Ready {
-        return Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": "Embedding service not ready. Please try again." }).to_string(),
-        )]));
+    let status = state.embedding.status().await;
+    if !status.is_ready() {
+        return Ok(embedding_loading_response(&status));
     }
 
     let embedding = state.embedding.embed(&params.content).await?;
@@ -61,9 +61,12 @@ pub async fn get_memory(
     params: GetMemoryParams,
 ) -> anyhow::Result<CallToolResult> {
     match state.storage.get_memory(&params.id).await {
-        Ok(Some(memory)) => Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string(&memory).unwrap_or_default(),
-        )])),
+        Ok(Some(mut memory)) => {
+            strip_embedding(&mut memory);
+            Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string(&memory).unwrap_or_default(),
+            )]))
+        }
         Ok(None) => Ok(CallToolResult::success(vec![Content::text(
             json!({ "error": format!("Memory not found: {}", params.id) }).to_string(),
         )])),
@@ -84,9 +87,12 @@ pub async fn update_memory(
     };
 
     match state.storage.update_memory(&params.id, update).await {
-        Ok(memory) => Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string(&memory).unwrap_or_default(),
-        )])),
+        Ok(mut memory) => {
+            strip_embedding(&mut memory);
+            Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string(&memory).unwrap_or_default(),
+            )]))
+        }
         Err(e) => Ok(CallToolResult::success(vec![Content::text(
             json!({ "error": e.to_string() }).to_string(),
         )])),
@@ -114,7 +120,7 @@ pub async fn list_memories(
     let limit = params.limit.unwrap_or(20).min(100);
     let offset = params.offset.unwrap_or(0);
 
-    let memories = match state.storage.list_memories(limit, offset).await {
+    let mut memories = match state.storage.list_memories(limit, offset).await {
         Ok(m) => m,
         Err(e) => {
             return Ok(CallToolResult::success(vec![Content::text(
@@ -123,6 +129,7 @@ pub async fn list_memories(
         }
     };
 
+    strip_embeddings(&mut memories);
     let total = state.storage.count_memories().await.unwrap_or(0);
 
     Ok(CallToolResult::success(vec![Content::text(
@@ -147,13 +154,16 @@ pub async fn get_valid(
         .get_valid(params.user_id.as_deref(), limit)
         .await
     {
-        Ok(memories) => Ok(CallToolResult::success(vec![Content::text(
-            json!({
-                "memories": memories,
-                "count": memories.len()
-            })
-            .to_string(),
-        )])),
+        Ok(mut memories) => {
+            strip_embeddings(&mut memories);
+            Ok(CallToolResult::success(vec![Content::text(
+                json!({
+                    "memories": memories,
+                    "count": memories.len()
+                })
+                .to_string(),
+            )]))
+        }
         Err(e) => Ok(CallToolResult::success(vec![Content::text(
             json!({ "error": e.to_string() }).to_string(),
         )])),
@@ -180,14 +190,17 @@ pub async fn get_valid_at(
         .get_valid_at(ts, params.user_id.as_deref(), limit)
         .await
     {
-        Ok(memories) => Ok(CallToolResult::success(vec![Content::text(
-            json!({
-                "memories": memories,
-                "count": memories.len(),
-                "timestamp": params.timestamp
-            })
-            .to_string(),
-        )])),
+        Ok(mut memories) => {
+            strip_embeddings(&mut memories);
+            Ok(CallToolResult::success(vec![Content::text(
+                json!({
+                    "memories": memories,
+                    "count": memories.len(),
+                    "timestamp": params.timestamp
+                })
+                .to_string(),
+            )]))
+        }
         Err(e) => Ok(CallToolResult::success(vec![Content::text(
             json!({ "error": e.to_string() }).to_string(),
         )])),

@@ -1,6 +1,8 @@
 use clap::Parser;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use memory_mcp::config::{AppConfig, AppState};
 use memory_mcp::embedding::{EmbeddingConfig, EmbeddingService, ModelType};
@@ -28,6 +30,10 @@ struct Cli {
 
     #[arg(long, default_value = "info")]
     log_level: String,
+
+    /// Idle timeout in minutes. Server exits if no requests for this duration. 0 = disabled.
+    #[arg(long, default_value = "30")]
+    idle_timeout: u64,
 
     #[arg(long)]
     list_models: bool,
@@ -70,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
         model,
         cache_size: cli.cache_size,
         batch_size: cli.batch_size,
+        cache_dir: Some(cli.data_dir.join("models")),
     };
     let embedding = Arc::new(EmbeddingService::new(embedding_config));
     embedding.start_loading();

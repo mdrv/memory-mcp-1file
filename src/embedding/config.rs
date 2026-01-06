@@ -62,6 +62,7 @@ pub struct EmbeddingConfig {
     pub model: ModelType,
     pub cache_size: usize,
     pub batch_size: usize,
+    pub cache_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for EmbeddingConfig {
@@ -70,6 +71,7 @@ impl Default for EmbeddingConfig {
             model: ModelType::E5Multi,
             cache_size: 1000,
             batch_size: 32,
+            cache_dir: None,
         }
     }
 }

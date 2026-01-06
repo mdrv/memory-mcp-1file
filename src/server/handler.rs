@@ -320,7 +320,6 @@ impl ServerHandler for MemoryMcpServer {
 mod tests {
     use super::*;
     use crate::test_utils::TestContext;
-    use rmcp::service::RequestContext;
 
     #[tokio::test]
     async fn test_server_handler_integration() {

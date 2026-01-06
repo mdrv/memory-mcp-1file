@@ -546,7 +546,7 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn list_projects(&self) -> Result<Vec<String>> {
-        let sql = "SELECT DISTINCT project_id FROM code_chunks";
+        let sql = "SELECT project_id FROM code_chunks GROUP BY project_id";
         let mut response = self.db.query(sql).await?;
         let results: Vec<serde_json::Value> = response.take(0).unwrap_or_default();
         let projects = results
@@ -827,7 +827,7 @@ mod tests {
         let count = storage.create_code_chunks_batch(chunks).await.unwrap();
         assert_eq!(count, 50);
 
-        let status = storage.get_index_status("test_project").await.unwrap();
+        let _status = storage.get_index_status("test_project").await.unwrap();
         // Note: create_code_chunks_batch doesn't update index_status table automatically,
         // that's handled by the indexer. But we can verify chunks exist.
 

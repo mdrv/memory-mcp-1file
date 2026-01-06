@@ -1,10 +1,11 @@
 # Stage 1: Builder
 FROM rust:slim AS builder
 
-# Install build dependencies
+# Install build dependencies (g++ needed for some native dependencies)
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

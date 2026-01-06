@@ -11,6 +11,8 @@ use crate::server::params::{
 use crate::storage::StorageBackend;
 use crate::types::{Direction, Entity, Relation};
 
+use super::strip_entity_embeddings;
+
 pub async fn create_entity(
     state: &Arc<AppState>,
     params: CreateEntityParams,
@@ -78,15 +80,18 @@ pub async fn get_related(
         .get_related(&params.entity_id, depth, direction)
         .await
     {
-        Ok((entities, relations)) => Ok(CallToolResult::success(vec![Content::text(
-            json!({
-                "entities": entities,
-                "relations": relations,
-                "entity_count": entities.len(),
-                "relation_count": relations.len()
-            })
-            .to_string(),
-        )])),
+        Ok((mut entities, relations)) => {
+            strip_entity_embeddings(&mut entities);
+            Ok(CallToolResult::success(vec![Content::text(
+                json!({
+                    "entities": entities,
+                    "relations": relations,
+                    "entity_count": entities.len(),
+                    "relation_count": relations.len()
+                })
+                .to_string(),
+            )]))
+        }
         Err(e) => Ok(CallToolResult::success(vec![Content::text(
             json!({ "error": e.to_string() }).to_string(),
         )])),

@@ -4,6 +4,7 @@ use rmcp::model::{CallToolResult, Content};
 use serde_json::json;
 
 use crate::config::AppState;
+use crate::embedding::EmbeddingStatus;
 use crate::server::params::{GetStatusParams, ResetAllMemoryParams};
 use crate::storage::StorageBackend;
 
@@ -13,18 +14,62 @@ pub async fn get_status(
 ) -> anyhow::Result<CallToolResult> {
     let memories_count = state.storage.count_memories().await.unwrap_or(0);
     let db_healthy = state.storage.health_check().await.unwrap_or(false);
-    let embedding_status = state.embedding.status();
+    let embedding_status = state.embedding.status().await;
+
+    let (overall_status, embedding_json) = match &embedding_status {
+        EmbeddingStatus::Ready => (
+            "healthy",
+            json!({
+                "status": "ready",
+                "model": format!("{}_{}", state.embedding.model(), state.embedding.dimensions()),
+                "dimensions": state.embedding.dimensions()
+            }),
+        ),
+        EmbeddingStatus::Loading {
+            phase,
+            elapsed_seconds,
+            eta_seconds,
+            cached,
+            progress_percent,
+            ..
+        } => {
+            let mut loading_json = json!({
+                "status": "loading",
+                "phase": phase.to_string(),
+                "elapsed_seconds": elapsed_seconds,
+                "eta_seconds": eta_seconds,
+                "cached": cached,
+                "model": format!("{}_{}", state.embedding.model(), state.embedding.dimensions()),
+                "dimensions": state.embedding.dimensions()
+            });
+            if let Some(pct) = progress_percent {
+                loading_json["progress_percent"] = json!(pct);
+            }
+            ("loading", loading_json)
+        }
+        EmbeddingStatus::Error { message } => (
+            "error",
+            json!({
+                "status": "error",
+                "error": message,
+                "model": format!("{}_{}", state.embedding.model(), state.embedding.dimensions()),
+                "dimensions": state.embedding.dimensions()
+            }),
+        ),
+    };
+
+    let status = if !db_healthy {
+        "degraded"
+    } else {
+        overall_status
+    };
 
     Ok(CallToolResult::success(vec![Content::text(
         json!({
             "version": env!("CARGO_PKG_VERSION"),
-            "status": if db_healthy { "healthy" } else { "degraded" },
+            "status": status,
             "memories_count": memories_count,
-            "embedding": {
-                "status": format!("{:?}", embedding_status),
-                "model": "e5_multi_768d",
-                "dimensions": 768
-            }
+            "embedding": embedding_json
         })
         .to_string(),
     )]))

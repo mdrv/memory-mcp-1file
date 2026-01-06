@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::Result;
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
@@ -35,13 +37,38 @@ impl EmbeddingEngine {
         let tokenizer_filename = repo.get("tokenizer.json")?;
         let weights_filename = repo.get("model.safetensors")?;
 
-        let config_content = std::fs::read_to_string(&config_filename)?;
+        Self::from_files(
+            model_type,
+            &config_filename,
+            &tokenizer_filename,
+            &weights_filename,
+        )
+    }
+
+    pub fn from_files(
+        model_type: ModelType,
+        config_path: &Path,
+        tokenizer_path: &Path,
+        weights_path: &Path,
+    ) -> Result<Self> {
+        let device = Device::Cpu;
+        let dimensions = model_type.dimensions();
+
+        if model_type == ModelType::Mock {
+            return Ok(Self {
+                model: None,
+                tokenizer: None,
+                device,
+                dimensions,
+            });
+        }
+
+        let config_content = std::fs::read_to_string(config_path)?;
         let config: Config = serde_json::from_str(&config_content)?;
 
-        let tokenizer = Tokenizer::from_file(&tokenizer_filename).map_err(anyhow::Error::msg)?;
+        let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(anyhow::Error::msg)?;
 
-        let vb =
-            unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], DTYPE, &device)? };
+        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], DTYPE, &device)? };
         let model = BertModel::load(vb, &config)?;
 
         Ok(Self {
