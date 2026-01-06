@@ -30,6 +30,39 @@ impl SurrealStorage {
 
         Ok(Self { db })
     }
+
+    pub async fn check_dimension(&self, expected: usize) -> Result<()> {
+        let mut response = self.db.query("INFO FOR TABLE memories").await?;
+        let result: Option<serde_json::Value> = response.take(0)?;
+
+        if let Some(info) = result {
+            if let Some(indexes) = info.get("indexes").and_then(|i| i.as_object()) {
+                if let Some(idx_def) = indexes.get("idx_memories_vec").and_then(|v| v.as_str()) {
+                    if let Some(dim) = self.extract_dimension(idx_def) {
+                        if dim != expected {
+                            return Err(crate::types::AppError::DimensionMismatch {
+                                model: expected,
+                                db: dim,
+                            });
+                        }
+                        tracing::info!(model = expected, db = dim, "Dimension check passed");
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn extract_dimension(&self, def: &str) -> Option<usize> {
+        def.split("DIMENSION ")
+            .nth(1)?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()
+    }
 }
 
 fn generate_id() -> String {
@@ -58,7 +91,8 @@ impl StorageBackend for SurrealStorage {
 
     async fn update_memory(&self, id: &str, update: MemoryUpdate) -> Result<Memory> {
         let existing: Option<Memory> = self.db.select(("memories", id)).await?;
-        let mut memory = existing.ok_or_else(|| crate::types::AppError::NotFound(id.to_string()))?;
+        let mut memory =
+            existing.ok_or_else(|| crate::types::AppError::NotFound(id.to_string()))?;
 
         if let Some(content) = update.content {
             memory.content = content;
@@ -80,7 +114,8 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn list_memories(&self, limit: usize, offset: usize) -> Result<Vec<Memory>> {
-        let query = "SELECT * FROM memories ORDER BY ingestion_time DESC LIMIT $limit START $offset";
+        let query =
+            "SELECT * FROM memories ORDER BY ingestion_time DESC LIMIT $limit START $offset";
         let mut response = self
             .db
             .query(query)
@@ -92,7 +127,10 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn count_memories(&self) -> Result<usize> {
-        let mut response = self.db.query("SELECT count() FROM memories GROUP ALL").await?;
+        let mut response = self
+            .db
+            .query("SELECT count() FROM memories GROUP ALL")
+            .await?;
         let result: Option<serde_json::Value> = response.take(0)?;
         let count = result
             .and_then(|v| v.get("count").and_then(|c| c.as_u64()))
@@ -102,10 +140,10 @@ impl StorageBackend for SurrealStorage {
 
     async fn vector_search(&self, embedding: &[f32], limit: usize) -> Result<Vec<SearchResult>> {
         let query = r#"
-            SELECT *, vector::similarity::cosine(embedding, $vec) AS score 
+            SELECT meta::id(id) AS id, content, memory_type, vector::similarity::cosine(embedding, $vec) AS score, metadata 
             FROM memories 
             WHERE embedding IS NOT NULL 
-              AND (valid_until IS NULL OR valid_until > time::now())
+              AND (valid_until = NONE OR valid_until > time::now())
             ORDER BY score DESC 
             LIMIT $limit
         "#;
@@ -126,10 +164,19 @@ impl StorageBackend for SurrealStorage {
         limit: usize,
     ) -> Result<Vec<ScoredCodeChunk>> {
         let query = r#"
-            SELECT *, vector::similarity::cosine(embedding, $vec) AS score 
+            SELECT 
+                meta::id(id) AS id,
+                file_path,
+                content,
+                language,
+                start_line,
+                end_line,
+                chunk_type,
+                name,
+                vector::similarity::cosine(embedding, $vec) AS score 
             FROM code_chunks 
             WHERE embedding IS NOT NULL
-              AND ($project_id IS NULL OR project_id = $project_id)
+              AND ($project_id = NONE OR project_id = $project_id)
             ORDER BY score DESC 
             LIMIT $limit
         "#;
@@ -146,10 +193,10 @@ impl StorageBackend for SurrealStorage {
 
     async fn bm25_search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
         let sql = r#"
-            SELECT *, search::score(0) AS score 
+            SELECT meta::id(id) AS id, content, memory_type, search::score(0) AS score, metadata 
             FROM memories 
             WHERE content @0@ $query
-              AND (valid_until IS NULL OR valid_until > time::now())
+              AND (valid_until = NONE OR valid_until > time::now())
             ORDER BY score DESC 
             LIMIT $limit
         "#;
@@ -170,10 +217,19 @@ impl StorageBackend for SurrealStorage {
         limit: usize,
     ) -> Result<Vec<ScoredCodeChunk>> {
         let sql = r#"
-            SELECT *, search::score(0) AS score 
+            SELECT 
+                meta::id(id) AS id,
+                file_path,
+                content,
+                language,
+                start_line,
+                end_line,
+                chunk_type,
+                name,
+                search::score(0) AS score 
             FROM code_chunks 
             WHERE content @0@ $query
-              AND ($project_id IS NULL OR project_id = $project_id)
+              AND ($project_id = NONE OR project_id = $project_id)
             ORDER BY score DESC 
             LIMIT $limit
         "#;
@@ -219,26 +275,21 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn create_relation(&self, relation: Relation) -> Result<String> {
-        let sql = r#"
-            RELATE $from_entity->relations->$to_entity 
-            SET relation_type = $relation_type, weight = $weight
-        "#;
-        let from = relation.from_entity.clone();
-        let to = relation.to_entity.clone();
-        let rel_type = relation.relation_type.clone();
-        let mut response = self
-            .db
-            .query(sql)
-            .bind(("from_entity", from))
-            .bind(("to_entity", to))
-            .bind(("relation_type", rel_type))
+        let id = generate_id();
+        let from_thing = format!("{}:{}", relation.from_entity.tb, relation.from_entity.id);
+        let to_thing = format!("{}:{}", relation.to_entity.tb, relation.to_entity.id);
+
+        let sql = format!(
+            "CREATE relations:{} SET `in` = {}, `out` = {}, relation_type = $rel_type, weight = $weight",
+            id, from_thing, to_thing
+        );
+
+        self.db
+            .query(&sql)
+            .bind(("rel_type", relation.relation_type))
             .bind(("weight", relation.weight))
             .await?;
-        let created: Option<Relation> = response.take(0)?;
-        let id = created
-            .and_then(|r| r.id)
-            .map(|t| t.id.to_string())
-            .unwrap_or_else(generate_id);
+
         Ok(id)
     }
 
@@ -248,19 +299,56 @@ impl StorageBackend for SurrealStorage {
         depth: usize,
         direction: Direction,
     ) -> Result<(Vec<Entity>, Vec<Relation>)> {
-        let depth = depth.min(3);
-        let arrow = match direction {
-            Direction::Outgoing => "->",
-            Direction::Incoming => "<-",
-            Direction::Both => "<->",
+        let _depth = depth.clamp(1, 3);
+        let entity_thing = format!("entities:{}", entity_id);
+
+        let sql = match direction {
+            Direction::Outgoing => {
+                "SELECT * FROM relations WHERE `in` = type::thing($entity_id)"
+            }
+            Direction::Incoming => {
+                "SELECT * FROM relations WHERE `out` = type::thing($entity_id)"
+            }
+            Direction::Both => {
+                "SELECT * FROM relations WHERE `in` = type::thing($entity_id) OR `out` = type::thing($entity_id)"
+            }
         };
-        let sql = format!(
-            "SELECT {}relations.{} AS related FROM entities:{} FETCH related",
-            arrow, depth, entity_id
-        );
-        let mut response = self.db.query(&sql).await?;
-        let entities: Vec<Entity> = response.take(0).unwrap_or_default();
-        let relations: Vec<Relation> = vec![];
+
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("entity_id", entity_thing.clone()))
+            .await?;
+
+        let relations: Vec<Relation> = response.take(0).unwrap_or_default();
+
+        let mut entity_ids: Vec<String> = vec![];
+        for rel in &relations {
+            match direction {
+                Direction::Outgoing => {
+                    entity_ids.push(rel.to_entity.id.to_string());
+                }
+                Direction::Incoming => {
+                    entity_ids.push(rel.from_entity.id.to_string());
+                }
+                Direction::Both => {
+                    if rel.from_entity.id.to_string() != entity_id {
+                        entity_ids.push(rel.from_entity.id.to_string());
+                    }
+                    if rel.to_entity.id.to_string() != entity_id {
+                        entity_ids.push(rel.to_entity.id.to_string());
+                    }
+                }
+            }
+        }
+
+        let mut entities: Vec<Entity> = vec![];
+        for eid in entity_ids {
+            if let Some(entity) = self.get_entity(&eid).await? {
+                entities.push(entity);
+            }
+        }
+
         Ok((entities, relations))
     }
 
@@ -294,7 +382,7 @@ impl StorageBackend for SurrealStorage {
                 "SELECT count() FROM relations WHERE in = entities:{} OR out = entities:{} GROUP ALL",
                 id, id
             );
-            let mut response = self.db.query(&sql).await?;
+            let mut response = self.db.query(sql).await?;
             let result: Option<serde_json::Value> = response.take(0).ok().flatten();
             let count = result
                 .and_then(|v| v.get("count").and_then(|c| c.as_u64()))
@@ -304,11 +392,23 @@ impl StorageBackend for SurrealStorage {
         Ok(degrees)
     }
 
+    async fn get_all_entities(&self) -> Result<Vec<Entity>> {
+        let mut response = self.db.query("SELECT * FROM entities").await?;
+        let entities: Vec<Entity> = response.take(0)?;
+        Ok(entities)
+    }
+
+    async fn get_all_relations(&self) -> Result<Vec<Relation>> {
+        let mut response = self.db.query("SELECT * FROM relations").await?;
+        let relations: Vec<Relation> = response.take(0)?;
+        Ok(relations)
+    }
+
     async fn get_valid(&self, user_id: Option<&str>, limit: usize) -> Result<Vec<Memory>> {
         let sql = r#"
             SELECT * FROM memories 
-            WHERE (valid_until IS NULL OR valid_until > time::now())
-              AND ($user_id IS NULL OR user_id = $user_id)
+            WHERE (valid_until = NONE OR valid_until > time::now())
+              AND ($user_id = NONE OR user_id = $user_id)
             ORDER BY ingestion_time DESC
             LIMIT $limit
         "#;
@@ -331,8 +431,8 @@ impl StorageBackend for SurrealStorage {
         let sql = r#"
             SELECT * FROM memories 
             WHERE valid_from <= $timestamp 
-              AND (valid_until IS NULL OR valid_until > $timestamp)
-              AND ($user_id IS NULL OR user_id = $user_id)
+              AND (valid_until = NONE OR valid_until > $timestamp)
+              AND ($user_id = NONE OR user_id = $user_id)
             ORDER BY ingestion_time DESC
             LIMIT $limit
         "#;
@@ -354,15 +454,14 @@ impl StorageBackend for SurrealStorage {
         _superseded_by: Option<&str>,
     ) -> Result<bool> {
         let sql = r#"
-            UPDATE memories SET 
+            UPDATE type::thing("memories", $id) SET 
                 valid_until = time::now(),
                 invalidation_reason = $reason
-            WHERE id = $id
         "#;
         let mut response = self
             .db
             .query(sql)
-            .bind(("id", format!("memories:{}", id)))
+            .bind(("id", id.to_string()))
             .bind(("reason", reason.map(String::from)))
             .await?;
         let updated: Option<Memory> = response.take(0).ok().flatten();
@@ -376,24 +475,43 @@ impl StorageBackend for SurrealStorage {
         Ok(id)
     }
 
-    async fn create_code_chunks_batch(&self, chunks: Vec<CodeChunk>) -> Result<usize> {
+    async fn create_code_chunks_batch(&self, mut chunks: Vec<CodeChunk>) -> Result<usize> {
         let count = chunks.len();
-        for chunk in chunks {
-            self.create_code_chunk(chunk).await?;
+        if count == 0 {
+            return Ok(0);
         }
+
+        // Assign IDs before insertion to ensure they are set
+        for chunk in &mut chunks {
+            if chunk.id.is_none() {
+                let id = generate_id();
+                chunk.id = Some(surrealdb::sql::Thing::from(("code_chunks", id.as_str())));
+            }
+        }
+
+        // Use bulk insert for performance
+        let _: Vec<CodeChunk> = self.db.insert("code_chunks").content(chunks).await?;
         Ok(count)
     }
 
     async fn delete_project_chunks(&self, project_id: &str) -> Result<usize> {
         let sql = "DELETE FROM code_chunks WHERE project_id = $project_id RETURN BEFORE";
-        let mut response = self.db.query(sql).bind(("project_id", project_id.to_string())).await?;
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .await?;
         let deleted: Vec<CodeChunk> = response.take(0).unwrap_or_default();
         Ok(deleted.len())
     }
 
     async fn get_index_status(&self, project_id: &str) -> Result<Option<IndexStatus>> {
         let sql = "SELECT * FROM index_status WHERE project_id = $project_id LIMIT 1";
-        let mut response = self.db.query(sql).bind(("project_id", project_id.to_string())).await?;
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .await?;
         let result: Vec<IndexStatus> = response.take(0).unwrap_or_default();
         Ok(result.into_iter().next())
     }
@@ -433,7 +551,11 @@ impl StorageBackend for SurrealStorage {
         let results: Vec<serde_json::Value> = response.take(0).unwrap_or_default();
         let projects = results
             .into_iter()
-            .filter_map(|v| v.get("project_id").and_then(|p| p.as_str()).map(String::from))
+            .filter_map(|v| {
+                v.get("project_id")
+                    .and_then(|p| p.as_str())
+                    .map(String::from)
+            })
             .collect();
         Ok(projects)
     }
@@ -441,5 +563,278 @@ impl StorageBackend for SurrealStorage {
     async fn health_check(&self) -> Result<bool> {
         self.db.query("INFO FOR DB").await?;
         Ok(true)
+    }
+
+    async fn reset_db(&self) -> Result<()> {
+        // Transactional delete of all data
+        self.db
+            .query(
+                r#"
+            BEGIN TRANSACTION;
+            DELETE memories;
+            DELETE entities;
+            DELETE relations;
+            DELETE code_chunks;
+            DELETE index_status;
+            COMMIT TRANSACTION;
+            "#,
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Entity, Memory, MemoryType, MemoryUpdate, Relation};
+    use surrealdb::sql::{Datetime, Thing};
+    use tempfile::tempdir;
+
+    async fn setup_test_db() -> (SurrealStorage, tempfile::TempDir) {
+        let tmp = tempdir().unwrap();
+        let storage = SurrealStorage::new(tmp.path()).await.unwrap();
+        (storage, tmp)
+    }
+
+    #[tokio::test]
+    async fn test_memory_crud() {
+        let (storage, _tmp) = setup_test_db().await;
+
+        let memory = Memory {
+            id: None,
+            content: "Test memory content".to_string(),
+            embedding: Some(vec![0.1; 768]),
+            memory_type: MemoryType::Semantic,
+            user_id: Some("user1".to_string()),
+            metadata: None,
+            event_time: Datetime::default(),
+            ingestion_time: Datetime::default(),
+            valid_from: Datetime::default(),
+            valid_until: None,
+            importance_score: 1.0,
+            invalidation_reason: None,
+        };
+
+        let id = storage.create_memory(memory.clone()).await.unwrap();
+        assert!(!id.is_empty());
+
+        let retrieved = storage
+            .get_memory(&id)
+            .await
+            .unwrap()
+            .expect("Memory not found");
+        assert_eq!(retrieved.content, memory.content);
+        assert_eq!(retrieved.user_id, memory.user_id);
+
+        let update = MemoryUpdate {
+            content: Some("Updated content".to_string()),
+            memory_type: None,
+            metadata: None,
+        };
+        let updated = storage.update_memory(&id, update).await.unwrap();
+        assert_eq!(updated.content, "Updated content");
+
+        let list = storage.list_memories(10, 0).await.unwrap();
+        assert_eq!(list.len(), 1);
+
+        let deleted = storage.delete_memory(&id).await.unwrap();
+        assert!(deleted);
+        assert!(storage.get_memory(&id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_bm25_search() {
+        let (storage, _tmp) = setup_test_db().await;
+
+        storage
+            .create_memory(Memory {
+                id: None,
+                content: "Rust programming language".to_string(),
+                embedding: Some(vec![0.0; 768]),
+                memory_type: MemoryType::Semantic,
+                user_id: None,
+                metadata: None,
+                event_time: Datetime::default(),
+                ingestion_time: Datetime::default(),
+                valid_from: Datetime::default(),
+                valid_until: None,
+                importance_score: 1.0,
+                invalidation_reason: None,
+            })
+            .await
+            .unwrap();
+
+        storage
+            .create_memory(Memory {
+                id: None,
+                content: "Python scripting".to_string(),
+                embedding: Some(vec![0.0; 768]),
+                memory_type: MemoryType::Semantic,
+                user_id: None,
+                metadata: None,
+                event_time: Datetime::default(),
+                ingestion_time: Datetime::default(),
+                valid_from: Datetime::default(),
+                valid_until: None,
+                importance_score: 1.0,
+                invalidation_reason: None,
+            })
+            .await
+            .unwrap();
+
+        let results = storage.bm25_search("Rust", 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].content.contains("Rust"));
+    }
+
+    #[tokio::test]
+    async fn test_entity_and_relation() {
+        let (storage, _tmp) = setup_test_db().await;
+
+        let e1_id = storage
+            .create_entity(Entity {
+                id: None,
+                name: "Entity 1".to_string(),
+                entity_type: "person".to_string(),
+                description: None,
+                embedding: None,
+                user_id: None,
+                created_at: Datetime::default(),
+            })
+            .await
+            .unwrap();
+
+        let e2_id = storage
+            .create_entity(Entity {
+                id: None,
+                name: "Entity 2".to_string(),
+                entity_type: "place".to_string(),
+                description: None,
+                embedding: None,
+                user_id: None,
+                created_at: Datetime::default(),
+            })
+            .await
+            .unwrap();
+
+        let _rel_id = storage
+            .create_relation(Relation {
+                id: None,
+                from_entity: Thing::from(("entities".to_string(), e1_id.clone())),
+                to_entity: Thing::from(("entities".to_string(), e2_id.clone())),
+                relation_type: "lives_in".to_string(),
+                weight: 1.0,
+                valid_from: Datetime::default(),
+                valid_until: None,
+            })
+            .await
+            .unwrap();
+
+        let (related, _) = storage
+            .get_related(&e1_id, 1, Direction::Outgoing)
+            .await
+            .unwrap();
+        assert_eq!(related.len(), 1);
+        assert_eq!(related[0].name, "Entity 2");
+    }
+
+    #[tokio::test]
+    async fn test_temporal_validation() {
+        let (storage, _tmp) = setup_test_db().await;
+
+        let id = storage
+            .create_memory(Memory {
+                id: None,
+                content: "Temporary memory".to_string(),
+                embedding: Some(vec![0.0; 768]),
+                memory_type: MemoryType::Semantic,
+                user_id: None,
+                metadata: None,
+                event_time: Datetime::default(),
+                ingestion_time: Datetime::default(),
+                valid_from: Datetime::default(),
+                valid_until: None,
+                importance_score: 1.0,
+                invalidation_reason: None,
+            })
+            .await
+            .unwrap();
+
+        let valid = storage.get_valid(None, 10).await.unwrap();
+        assert_eq!(valid.len(), 1);
+
+        storage
+            .invalidate(&id, Some("test reason"), None)
+            .await
+            .unwrap();
+
+        let valid_after = storage.get_valid(None, 10).await.unwrap();
+        assert_eq!(valid_after.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_reset_db() {
+        let (storage, _tmp) = setup_test_db().await;
+
+        storage
+            .create_memory(Memory {
+                id: None,
+                content: "To be deleted".to_string(),
+                embedding: None,
+                memory_type: MemoryType::Semantic,
+                user_id: None,
+                metadata: None,
+                event_time: Datetime::default(),
+                ingestion_time: Datetime::default(),
+                valid_from: Datetime::default(),
+                valid_until: None,
+                importance_score: 1.0,
+                invalidation_reason: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(storage.count_memories().await.unwrap(), 1);
+
+        storage.reset_db().await.unwrap();
+
+        assert_eq!(storage.count_memories().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_bulk_insert_code_chunks() {
+        let (storage, _tmp) = setup_test_db().await;
+        use crate::types::{ChunkType, CodeChunk, Language};
+
+        let chunks: Vec<CodeChunk> = (0..50)
+            .map(|i| CodeChunk {
+                id: None,
+                file_path: format!("src/file_{}.rs", i),
+                content: format!("fn test_{}() {{}}", i),
+                language: Language::Rust,
+                start_line: 1,
+                end_line: 3,
+                chunk_type: ChunkType::Function,
+                name: Some(format!("test_{}", i)),
+                embedding: Some(vec![0.1; 768]),
+                content_hash: format!("hash_{}", i),
+                project_id: Some("test_project".to_string()),
+                indexed_at: Datetime::default(),
+            })
+            .collect();
+
+        let count = storage.create_code_chunks_batch(chunks).await.unwrap();
+        assert_eq!(count, 50);
+
+        let status = storage.get_index_status("test_project").await.unwrap();
+        // Note: create_code_chunks_batch doesn't update index_status table automatically,
+        // that's handled by the indexer. But we can verify chunks exist.
+
+        let results = storage
+            .bm25_search_code("test", Some("test_project"), 100)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 50);
     }
 }

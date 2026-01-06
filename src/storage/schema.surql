@@ -2,6 +2,9 @@
 -- SurrealDB 2.x with kv-surrealkv
 -- HNSW DIMENSION 768 for e5_multi model
 
+-- Define analyzers for full-text search (BM25)
+DEFINE ANALYZER IF NOT EXISTS simple TOKENIZERS blank, class FILTERS lowercase;
+
 -- Memories table
 DEFINE TABLE IF NOT EXISTS memories SCHEMAFULL;
 DEFINE FIELD content          ON memories TYPE string;
@@ -35,12 +38,8 @@ DEFINE INDEX IF NOT EXISTS idx_entities_vec ON entities
 DEFINE INDEX IF NOT EXISTS idx_entities_fts ON entities 
     FIELDS name SEARCH ANALYZER simple BM25;
 
--- Relations table (graph edges)
-DEFINE TABLE IF NOT EXISTS relations TYPE RELATION IN entities OUT entities SCHEMAFULL;
-DEFINE FIELD relation_type    ON relations TYPE string;
-DEFINE FIELD weight           ON relations TYPE float DEFAULT 1.0;
-DEFINE FIELD valid_from       ON relations TYPE datetime DEFAULT time::now();
-DEFINE FIELD valid_until      ON relations TYPE option<datetime>;
+-- Relations table will be auto-created by RELATE statements
+-- No explicit definition needed; RELATE creates edge tables automatically
 
 -- Code chunks table
 DEFINE TABLE IF NOT EXISTS code_chunks SCHEMAFULL;

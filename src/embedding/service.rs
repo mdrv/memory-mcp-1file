@@ -26,9 +26,15 @@ impl EmbeddingService {
     }
 
     pub fn start_loading(&self) {
-        let engine = self.engine.clone();
+        let engine_state = self.engine.clone();
         let status = self.status.clone();
         let model = self.config.model;
+
+        if model == ModelType::Mock {
+            status.store(1, Ordering::Relaxed);
+            tracing::info!("Mock embedding model ready");
+            return;
+        }
 
         std::thread::spawn(move || {
             tracing::info!("Loading embedding model: {:?}", model);
@@ -40,7 +46,7 @@ impl EmbeddingService {
                         .build()
                         .expect("Failed to build runtime");
                     rt.block_on(async {
-                        let mut guard = engine.write().await;
+                        let mut guard = engine_state.write().await;
                         *guard = Some(e);
                     });
                     status.store(1, Ordering::Relaxed);
@@ -58,6 +64,19 @@ impl EmbeddingService {
         let model_ver = self.config.model.repo_id();
         if let Some(cached) = self.cache.get(text, model_ver) {
             return Ok(cached);
+        }
+
+        if self.config.model == ModelType::Mock {
+            let dim = self.config.model.dimensions();
+            let mut vec = vec![0.0; dim];
+            // Simple hash-based deterministic mock embedding
+            let hash = blake3::hash(text.as_bytes());
+            let bytes = hash.as_bytes();
+            for i in 0..dim.min(32) {
+                vec[i] = (bytes[i % 32] as f32) / 255.0;
+            }
+            self.cache.put(text, model_ver, vec.clone());
+            return Ok(vec);
         }
 
         let guard = self.engine.read().await;

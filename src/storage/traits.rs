@@ -102,6 +102,12 @@ pub trait StorageBackend: Send + Sync {
     /// Get the degree (number of connections) for each entity
     async fn get_node_degrees(&self, entity_ids: &[String]) -> Result<HashMap<String, usize>>;
 
+    /// Get all entities in the graph
+    async fn get_all_entities(&self) -> Result<Vec<Entity>>;
+
+    /// Get all relations in the graph
+    async fn get_all_relations(&self) -> Result<Vec<Relation>>;
+
     // ─────────────────────────────────────────────────────────────────────────
     // Temporal operations
     // ─────────────────────────────────────────────────────────────────────────
@@ -153,4 +159,7 @@ pub trait StorageBackend: Send + Sync {
 
     /// Check if the database is healthy and responsive
     async fn health_check(&self) -> Result<bool>;
+
+    /// Reset the entire database (delete all data). DANGER.
+    async fn reset_db(&self) -> Result<()>;
 }

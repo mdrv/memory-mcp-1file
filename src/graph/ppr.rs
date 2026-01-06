@@ -84,7 +84,10 @@ pub fn personalized_page_rank(
         .collect()
 }
 
-pub fn apply_hub_dampening(scores: &mut HashMap<NodeIndex, f32>, degrees: &HashMap<NodeIndex, usize>) {
+pub fn apply_hub_dampening(
+    scores: &mut HashMap<NodeIndex, f32>,
+    degrees: &HashMap<NodeIndex, usize>,
+) {
     for (node, score) in scores.iter_mut() {
         if let Some(&degree) = degrees.get(node) {
             if degree > 0 {

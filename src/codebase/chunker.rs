@@ -24,9 +24,7 @@ pub fn chunk_file(path: &Path, content: &str, project_id: &str) -> Vec<CodeChunk
         let chunk_content = chunk_lines.join("\n");
 
         if !chunk_content.trim().is_empty() {
-            let content_hash = blake3::hash(chunk_content.as_bytes())
-                .to_hex()
-                .to_string();
+            let content_hash = blake3::hash(chunk_content.as_bytes()).to_hex().to_string();
 
             chunks.push(CodeChunk {
                 id: None,
@@ -40,7 +38,7 @@ pub fn chunk_file(path: &Path, content: &str, project_id: &str) -> Vec<CodeChunk
                 embedding: None,
                 content_hash,
                 project_id: Some(project_id.to_string()),
-                indexed_at: chrono::Utc::now(),
+                indexed_at: surrealdb::sql::Datetime::default(),
             });
         }
 

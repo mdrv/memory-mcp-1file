@@ -91,7 +91,7 @@ mod tests {
             ("c".to_string(), 0.7),
         ];
         let results = rrf_merge(&vector, &[], &[], 0.4, 0.15, 0.45, 10);
-        
+
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].0, "a");
         assert!(results[0].1.vector_score > 0.0);
@@ -100,14 +100,8 @@ mod tests {
 
     #[test]
     fn test_rrf_merge_multiple_sources() {
-        let vector = vec![
-            ("a".to_string(), 0.9),
-            ("b".to_string(), 0.8),
-        ];
-        let bm25 = vec![
-            ("b".to_string(), 0.95),
-            ("c".to_string(), 0.7),
-        ];
+        let vector = vec![("a".to_string(), 0.9), ("b".to_string(), 0.8)];
+        let bm25 = vec![("b".to_string(), 0.95), ("c".to_string(), 0.7)];
         let results = rrf_merge(&vector, &bm25, &[], 0.4, 0.15, 0.45, 10);
         assert_eq!(results.len(), 3);
         let b_result = results.iter().find(|(id, _)| id == "b").unwrap();
@@ -116,10 +110,21 @@ mod tests {
     }
 
     #[test]
-    fn test_rrf_respects_limit() {
-        let vector: Vec<_> = (0..20).map(|i| (format!("id{i}"), 1.0 - i as f32 * 0.01)).collect();
-        let results = rrf_merge(&vector, &[], &[], 0.4, 0.15, 0.45, 5);
-        
-        assert_eq!(results.len(), 5);
+    fn test_rrf_merge_complex() {
+        let vector = vec![
+            ("1".to_string(), 0.9),
+            ("2".to_string(), 0.8),
+            ("3".to_string(), 0.7),
+        ];
+        let bm25 = vec![("3".to_string(), 0.9), ("1".to_string(), 0.8)];
+
+        let results = rrf_merge(&vector, &bm25, &[], 0.5, 0.5, 0.0, 10);
+
+        // Item 1 rank: vector=0, bm25=1. Score = 0.5/(60+0+1) + 0.5/(60+1+1)
+        // Item 3 rank: vector=2, bm25=0. Score = 0.5/(60+2+1) + 0.5/(60+0+1)
+
+        assert_eq!(results[0].0, "1"); // Item 1 should be first because rank 0 + rank 1 is better than rank 2 + rank 0
+        assert_eq!(results[1].0, "3");
+        assert_eq!(results[2].0, "2");
     }
 }

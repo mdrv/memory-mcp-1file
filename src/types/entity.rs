@@ -1,55 +1,58 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::Thing;
+use surrealdb::sql::{Datetime, Thing};
 
 fn default_weight() -> f32 {
     1.0
+}
+
+fn default_datetime() -> Datetime {
+    Datetime::default()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
-    
+
     pub name: String,
-    
+
     #[serde(default)]
     pub entity_type: String,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    
-    #[serde(skip_serializing)]
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding: Option<Vec<f32>>,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
-    
-    #[serde(default = "Utc::now")]
-    pub created_at: DateTime<Utc>,
+
+    #[serde(default = "default_datetime")]
+    pub created_at: Datetime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Relation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
-    
+
     #[serde(rename = "in")]
     pub from_entity: Thing,
-    
+
     #[serde(rename = "out")]
     pub to_entity: Thing,
-    
+
     pub relation_type: String,
-    
+
     #[serde(default = "default_weight")]
     pub weight: f32,
-    
-    #[serde(default = "Utc::now")]
-    pub valid_from: DateTime<Utc>,
-    
+
+    #[serde(default = "default_datetime")]
+    pub valid_from: Datetime,
+
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub valid_until: Option<DateTime<Utc>>,
+    pub valid_until: Option<Datetime>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -70,15 +73,15 @@ impl Entity {
             description: None,
             embedding: None,
             user_id: None,
-            created_at: Utc::now(),
+            created_at: Datetime::default(),
         }
     }
-    
+
     pub fn with_type(mut self, entity_type: String) -> Self {
         self.entity_type = entity_type;
         self
     }
-    
+
     pub fn with_description(mut self, description: String) -> Self {
         self.description = Some(description);
         self

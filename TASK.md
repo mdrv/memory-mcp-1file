@@ -350,7 +350,7 @@
 | # | Task | Status |
 |---|------|--------|
 | 11.1 | Missing unit tests | `[ ]` |
-| 11.2 | README.md in project root | `[ ]` |
+| 11.2 | README.md in project root | `[x]` |
 | 11.3 | NPM wrapper | `[ ]` |
 | 11.4 | Release binaries | `[ ]` |
 | 11.5 | Community detection (Leiden) | `[ ]` |

@@ -1,37 +1,40 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::Thing;
+use surrealdb::sql::{Datetime, Thing};
+
+fn default_datetime() -> Datetime {
+    Datetime::default()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeChunk {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
-    
+
     pub file_path: String,
     pub content: String,
-    
+
     #[serde(default)]
     pub language: Language,
-    
+
     pub start_line: u32,
     pub end_line: u32,
-    
+
     #[serde(default)]
     pub chunk_type: ChunkType,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    
-    #[serde(skip_serializing)]
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding: Option<Vec<f32>>,
-    
+
     pub content_hash: String,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
-    
-    #[serde(default = "Utc::now")]
-    pub indexed_at: DateTime<Utc>,
+
+    #[serde(default = "default_datetime")]
+    pub indexed_at: Datetime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -62,24 +65,25 @@ pub enum Language {
 pub struct IndexStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
-    
+
     pub project_id: String,
     pub status: IndexState,
-    
+
     #[serde(default)]
     pub total_files: u32,
-    
+
     #[serde(default)]
     pub indexed_files: u32,
-    
+
     #[serde(default)]
     pub total_chunks: u32,
-    
-    pub started_at: DateTime<Utc>,
-    
+
+    #[serde(default = "default_datetime")]
+    pub started_at: Datetime,
+
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<DateTime<Utc>>,
-    
+    pub completed_at: Option<Datetime>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
 }
@@ -111,7 +115,7 @@ impl IndexStatus {
             total_files: 0,
             indexed_files: 0,
             total_chunks: 0,
-            started_at: Utc::now(),
+            started_at: Datetime::default(),
             completed_at: None,
             error_message: None,
         }

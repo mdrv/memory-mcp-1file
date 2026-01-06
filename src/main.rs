@@ -59,10 +59,13 @@ async fn main() -> anyhow::Result<()> {
 
     let storage = Arc::new(SurrealStorage::new(&cli.data_dir).await?);
 
-    let model: ModelType = cli
-        .model
-        .parse()
-        .map_err(|e: String| anyhow::anyhow!(e))?;
+    let model: ModelType = cli.model.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+
+    if let Err(e) = storage.check_dimension(model.dimensions()).await {
+        tracing::error!("{}", e);
+        std::process::exit(1);
+    }
+
     let embedding_config = EmbeddingConfig {
         model,
         cache_size: cli.cache_size,
@@ -84,11 +87,42 @@ async fn main() -> anyhow::Result<()> {
         embedding,
     });
 
-    let server = MemoryMcpServer::new(state);
+    let server = MemoryMcpServer::new(state.clone());
     let transport = rmcp::transport::io::stdio();
 
     let service = rmcp::service::serve_server(server, transport).await?;
-    service.waiting().await?;
 
+    tracing::info!("Server started, waiting for signals...");
+
+    #[cfg(unix)]
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+
+    tokio::select! {
+        res = service.waiting() => {
+            if let Err(e) = res {
+                tracing::error!("Server error: {}", e);
+            }
+        },
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("Shutting down gracefully... (SIGINT)");
+        },
+        _ = async {
+            #[cfg(unix)]
+            {
+                terminate.recv().await;
+            }
+            #[cfg(not(unix))]
+            {
+                std::future::pending::<()>().await;
+            }
+        } => {
+            tracing::info!("Shutting down gracefully... (SIGTERM)");
+        }
+    }
+
+    tracing::info!("Closing database connections...");
+    drop(state);
+
+    tracing::info!("Shutdown complete");
     Ok(())
 }
