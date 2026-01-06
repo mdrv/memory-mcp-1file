@@ -1,6 +1,7 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ModelType {
     E5Small,
+    #[default]
     E5Multi,
     Nomic,
     BgeM3,
@@ -26,11 +27,7 @@ impl ModelType {
     }
 }
 
-impl Default for ModelType {
-    fn default() -> Self {
-        Self::E5Multi
-    }
-}
+
 
 impl std::str::FromStr for ModelType {
     type Err = String;

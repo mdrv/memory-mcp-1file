@@ -15,8 +15,10 @@ Goal: any agent can continue another agent's work without losing context.
 |-----------|--------|---------|
 | 🚀 Session start | `search_text` → show TASK → AUTO_CONTINUE | [SESSION_START](#-session_start-session-startup-algorithm) |
 | 🔍 Found TASK | Show to user → wait 30 sec | [AUTO_CONTINUE](#-auto_continue-confirmation-protocol-with-timer) |
-| ✏️ Changed subtask | `update_memory` with new Current | [TASK_UPDATE](#-task_update-when-to-update-memory) |
-| ✅ Completed WP | `invalidate` → update EPIC → new TASK | [TASK_COMPLETE](#-task_complete-completing-work-package) |
+| 🆕 Ad-hoc Task | Create TASK (ad_hoc) → SYNC | [AD_HOC_TASK](#-ad_hoc_task-user--external-tasks) |
+| 🧪 Research | Create RESEARCH → Cycle → SYNC | [RESEARCH_PROTOCOL](#-research_protocol-investigation--architecture) |
+| ✏️ Changed subtask | `update_memory` → SYNC | [SYNC_PROTOCOL](#-sync_protocol-status-synchronization) |
+| ✅ Completed WP | `invalidate` → update EPIC → SYNC | [TASK_COMPLETE](#-task_complete-completing-work-package) |
 
 </quick_reference>
 
@@ -38,6 +40,7 @@ User message BEFORE showing TASK — is NOT a confirmation!
 | `PROJECT:` | semantic | Overall project state | 🟢 Low |
 | `EPIC:` | procedural | WP group, feature progress | 🟡 Medium |
 | `TASK:` | episodic | Active Work Package | 🔴 **Highest** |
+| `RESEARCH:` | semantic | Investigation & Findings | 🔵 High |
 | `DECISION:` | semantic | Architectural decision with reason | 🟢 Low |
 | `CONTEXT:` | semantic | Technical context (stack, architecture) | 🟢 Low |
 | `USER:` | semantic | User preferences | 🟢 Low |
@@ -59,6 +62,7 @@ User message BEFORE showing TASK — is NOT a confirmation!
 ```
 TASK: {WP-id}-{short-description}
 ID: {WP-id}
+Type: standard | ad_hoc  <-- NEW
 Status: in_progress | blocked | completed | paused
 Lane: planned | in_progress | review | done
 Feature: {feature-id}
@@ -138,6 +142,28 @@ ALTERNATIVES_REJECTED:
 - {alternative 1}: {why rejected}
 - {alternative 2}: {why rejected}
 IMPLICATIONS: {consequences of the decision}
+```
+
+### RESEARCH
+
+```
+RESEARCH: {Research Topic}
+ID: {RES-date-topic}
+Status: active | completed | paused
+Goal: {What do we want to find out?}
+Path: {path to doc/research/...md}
+Updated: {ISO 8601 timestamp}
+
+Open Questions:
+- [ ] {Question 1}
+- [ ] {Question 2}
+
+Conclusions (Findings):
+- {Key finding 1}
+- {Key finding 2}
+
+Approved Decisions:
+- {Decision 1} (create DECISION record if important)
 ```
 
 ---
@@ -369,6 +395,36 @@ _(auto-continue in 30 seconds if no response)_
 
 ---
 
+## 🔄 SYNC_PROTOCOL: Status Synchronization
+
+<sync_protocol priority="CRITICAL">
+MANDATORY to execute on EVERY status change or task completion.
+Ensures consistency between Memory, Task Tools, and Reality.
+</sync_protocol>
+
+### ⚠️ DOUBLE OBLIGATION Rule
+You must synchronize **BOTH** systems immediately. Non-sync = Context Loss.
+
+| System | Action | Criticality |
+|--------|--------|-------------|
+| **1. Memory (MCP)** | `update_memory` / `store_memory` / `invalidate` | 🔴 **MANDATORY** |
+| **2. Task Tool (IDE/CLI)** | Update status (subtask/task) in tool | 🔴 **MANDATORY** |
+| **3. Documents** | Update markdown files (if present) | 🟡 If applicable |
+
+<checklist id="sync_protocol">
+- [ ] **Memory**: Updated Status, Current, or Blockers
+- [ ] **Task Tool**: Checked items or updated status in IDE/CLI
+- [ ] **Documents**: Updated relevant .md files
+</checklist>
+
+<constraints type="sync_protocol">
+- FORBIDDEN to update only one system
+- FORBIDDEN to delay synchronization (MUST be immediate)
+- FORBIDDEN to proceed to next task without full sync
+</constraints>
+
+---
+
 ## 🔄 TASK_UPDATE: When to Update Memory
 
 <task_update>
@@ -378,20 +434,19 @@ DO NOT update on every tool call — that's too frequent.
 
 | Trigger | Action |
 |---------|--------|
-| Completed subtask (T001 → T002) | `update_memory` with new Current |
-| Encountered blocker | `update_memory` with Blockers, Status=blocked |
+| Completed subtask (T001 → T002) | `update_memory` → **EXECUTE SYNC_PROTOCOL** |
+| Encountered blocker | `update_memory` (blocked) → **EXECUTE SYNC_PROTOCOL** |
 | Made a decision | + `store_memory` DECISION |
-| User says "stop/pause" | `update_memory` Status=paused |
+| User says "stop/pause" | `update_memory` (paused) → **EXECUTE SYNC_PROTOCOL** |
 | Created/modified files | Add to Context |
-| Fully completed WP | `invalidate` + new TASK for next WP |
+| Fully completed WP | `invalidate` + new TASK → **EXECUTE SYNC_PROTOCOL** |
 
 <checklist id="task_update">
 - [ ] Updating TASK when Current subtask changes
 - [ ] Adding changed files to Context
 - [ ] Creating DECISION for important decisions
 - [ ] Updating Status on blockers
-- [ ] **TRIPLE SYNC:** Sync status to Project Documents (e.g. TASK.md)
-- [ ] **TRIPLE SYNC:** Update active Task Management Tool (CLI/IDE) status
+- [ ] **EXECUTE SYNC_PROTOCOL** (Memory + Task Tool)
 </checklist>
 
 <constraints type="task_update">
@@ -415,8 +470,7 @@ Step order is important!
 - [ ] `update_memory(id="{epic_id}")` with Progress: {N+1}/{total}
 - [ ] `store_memory("DECISION: ...")` for important decisions
 - [ ] `store_memory("TASK: ...")` for new WP
-- [ ] **TRIPLE SYNC:** Update active Task Management Tool (CLI/IDE) status
-- [ ] **TRIPLE SYNC:** Mark as Completed in all relevant Project Documents
+- [ ] **EXECUTE SYNC_PROTOCOL** (Triple Sync)
 </checklist>
 
 ### Algorithm
@@ -435,15 +489,114 @@ Step order is important!
    store_memory(content="DECISION: ...", memory_type="semantic")
 
 4. store_memory for new TASK:
+   - Type: standard
    - Status: in_progress
    - Current: first subtask
    - Path: path to new WP file
+   
+5. EXECUTE SYNC_PROTOCOL (Update Task Tool + Docs)
 ```
 
 <constraints type="task_complete">
 - FORBIDDEN to move to new WP WITHOUT invalidating old TASK
 - FORBIDDEN to forget updating EPIC Progress
 - FORBIDDEN to use delete_memory — ONLY invalidate
+- FORBIDDEN to skip SYNC_PROTOCOL
+</constraints>
+
+---
+
+## ⚡ AD_HOC_TASK: User & External Tasks
+
+<ad_hoc_task>
+Protocol for tasks NOT defined in the standard Roadmap/Epic structure.
+Includes: User requests, Bug fixes outside sprints, One-off maintenance.
+</ad_hoc_task>
+
+### Algorithm
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    AD_HOC_TASK                              │
+├─────────────────────────────────────────────────────────────┤
+│ 1. Creation:                                                │
+│    store_memory("TASK: ...")                                │
+│    - ID: {generated_id} (e.g. USER-20240101)                │
+│    - Type: ad_hoc                                           │
+│    - Status: in_progress                                    │
+│    - Description: {user request}                            │
+│                                                             │
+│ 2. Sync Start:                                              │
+│    → Add to Task Tool (IDE/CLI) under "Ad-hoc" or similar   │
+│                                                             │
+│ 3. Execution:                                               │
+│    → Execute subtasks                                       │
+│    → SYNC_PROTOCOL after EACH step/subtask                  │
+│                                                             │
+│ 4. Completion:                                              │
+│    → invalidate(id="{task_id}", reason="Completed")         │
+│    → Mark Done in Task Tool                                 │
+│    → Notify User                                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+<constraints type="ad_hoc_task">
+- FORBIDDEN to execute "just a quick task" without recording in Memory
+- FORBIDDEN to skip Task Tool entry for ad-hoc tasks
+- **MANDATORY** to follow SYNC_PROTOCOL (Memory + Tool)
+</constraints>
+
+---
+
+## 🧪 RESEARCH_PROTOCOL: Investigation & Architecture
+
+<research_protocol>
+Protocol for investigations, selecting libraries, and designing architecture.
+Balances Memory limits by storing details in files and summaries in Memory.
+</research_protocol>
+
+### ⚖️ Memory vs File Strategy
+
+| Type | Where to store | Content |
+|------|----------------|---------|
+| **Meta-data** | **Memory (MCP)** | Status, Goal, *Key* Open Questions, *Key* Findings. <br/> **Limit:** ~1000-2000 chars per record. |
+| **Details** | **File (.md)** | Full benchmarks, long descriptions, code examples, logs. |
+
+### Algorithm
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  RESEARCH_PROTOCOL                          │
+├─────────────────────────────────────────────────────────────┤
+│ 1. Initialization:                                          │
+│    Create file: doc/research/{topic}.md                     │
+│    store_memory("RESEARCH: ...")                            │
+│    - Path: {path to file}                                   │
+│    - Goal: {objective}                                      │
+│    - Open Questions: {list of questions}                    │
+│    → EXECUTE SYNC_PROTOCOL                                  │
+│                                                             │
+│ 2. Research Cycle (Iterative):                              │
+│    → Investigate / Experiment                               │
+│    → Write details to File (.md)                            │
+│    → Update Memory ("RESEARCH: ...")                        │
+│         - Remove answered questions from Open Questions     │
+│         - Add answer to Conclusions                         │
+│    → EXECUTE SYNC_PROTOCOL                                  │
+│                                                             │
+│ 3. Completion:                                              │
+│    → Formulate final Decisions                              │
+│    → store_memory("DECISION: ...") (for approved choices)   │
+│    → invalidate(id="{research_id}", reason="Completed")     │
+│    → Update PROJECT/EPIC with results                       │
+│    → EXECUTE SYNC_PROTOCOL                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+<constraints type="research_protocol">
+- FORBIDDEN to dump huge texts into Memory (use linked File)
+- FORBIDDEN to conduct research without defining "Goal" and "Open Questions"
+- **MANDATORY** to fix Approved Decisions as separate DECISION records upon completion
 </constraints>
 
 ---

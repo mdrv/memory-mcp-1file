@@ -72,15 +72,15 @@ All 3 subtasks are independent and can be developed in parallel.
 
 ### Subtasks
 
-- [ ] **T004**: Create Cargo.toml with all dependencies (surrealdb, candle, rmcp, etc.)
-- [ ] **T005**: Create .cargo/config.toml for linker optimization (mold, lld)
-- [ ] **T006**: Implement src/types/error.rs (AppError via thiserror, Result alias)
-- [ ] **T007**: Implement src/types/memory.rs (Memory, MemoryType, MemoryUpdate)
-- [ ] **T008**: Implement src/types/entity.rs (Entity, Relation, Direction)
-- [ ] **T009**: Implement src/types/code.rs (CodeChunk, ChunkType, Language, IndexStatus)
-- [ ] **T010**: Implement src/types/search.rs (SearchResult, RecallResult, ScoredMemory)
-- [ ] **T011**: Create src/config.rs (AppConfig, AppState)
-- [ ] **T012**: Create src/lib.rs with pub mod declarations
+- [x] **T004**: Create Cargo.toml with all dependencies (surrealdb, candle, rmcp, etc.)
+- [x] **T005**: Create .cargo/config.toml for linker optimization (mold, lld)
+- [x] **T006**: Implement src/types/error.rs (AppError via thiserror, Result alias)
+- [x] **T007**: Implement src/types/memory.rs (Memory, MemoryType, MemoryUpdate)
+- [x] **T008**: Implement src/types/entity.rs (Entity, Relation, Direction)
+- [x] **T009**: Implement src/types/code.rs (CodeChunk, ChunkType, Language, IndexStatus)
+- [x] **T010**: Implement src/types/search.rs (SearchResult, RecallResult, ScoredMemory)
+- [x] **T011**: Create src/config.rs (AppConfig, AppState)
+- [x] **T012**: Create src/lib.rs with pub mod declarations
 - [ ] **T012a**: Write tests for WP02 components
 
 ### Success Criteria
@@ -100,19 +100,19 @@ All 3 subtasks are independent and can be developed in parallel.
 
 ### Subtasks
 
-- [ ] **T013**: Create src/storage/traits.rs (StorageBackend async trait)
-- [ ] **T014**: Create src/storage/schema.surql (DDL for all tables and indexes)
-- [ ] **T015**: Implement src/storage/surrealdb.rs - SurrealStorage::new, connect, apply schema
-- [ ] **T016**: Implement Memory CRUD: create_memory, get_memory, update_memory, delete_memory
-- [ ] **T017**: Implement Memory list: list_memories, count_memories (pagination)
-- [ ] **T018**: Implement Vector search: vector_search, vector_search_code
-- [ ] **T019**: Implement BM25 search: bm25_search, bm25_search_code
-- [ ] **T020**: Implement Entity ops: create_entity, get_entity, search_entities
-- [ ] **T021**: Implement Relation ops: create_relation, get_related, get_subgraph, get_node_degrees
-- [ ] **T022**: Implement Temporal ops: get_valid, get_valid_at, invalidate
-- [ ] **T023**: Implement Code ops: create_code_chunk, create_code_chunks_batch, delete_project_chunks
-- [ ] **T024**: Implement Index status: get_index_status, update_index_status, list_projects
-- [ ] **T025**: Implement System: health_check
+- [x] **T013**: Create src/storage/traits.rs (StorageBackend async trait)
+- [x] **T014**: Create src/storage/schema.surql (DDL for all tables and indexes)
+- [x] **T015**: Implement src/storage/surrealdb.rs - SurrealStorage::new, connect, apply schema
+- [x] **T016**: Implement Memory CRUD: create_memory, get_memory, update_memory, delete_memory
+- [x] **T017**: Implement Memory list: list_memories, count_memories (pagination)
+- [x] **T018**: Implement Vector search: vector_search, vector_search_code
+- [x] **T019**: Implement BM25 search: bm25_search, bm25_search_code
+- [x] **T020**: Implement Entity ops: create_entity, get_entity, search_entities
+- [x] **T021**: Implement Relation ops: create_relation, get_related, get_subgraph, get_node_degrees
+- [x] **T022**: Implement Temporal ops: get_valid, get_valid_at, invalidate
+- [x] **T023**: Implement Code ops: create_code_chunk, create_code_chunks_batch, delete_project_chunks
+- [x] **T024**: Implement Index status: get_index_status, update_index_status, list_projects
+- [x] **T025**: Implement System: health_check
 - [ ] **T025a**: Write tests for WP03 components
 
 ### Success Criteria
@@ -133,13 +133,13 @@ All 3 subtasks are independent and can be developed in parallel.
 
 ### Subtasks
 
-- [ ] **T026**: Create src/embedding/config.rs (ModelType enum, EmbeddingConfig)
-- [ ] **T027**: Implement src/embedding/engine.rs - EmbeddingEngine model loading via hf-hub
-- [ ] **T028**: Implement src/embedding/engine.rs - embed() function with mean pooling, L2 norm
-- [ ] **T029**: Implement src/embedding/cache.rs (EmbeddingCache LRU with blake3 keys)
-- [ ] **T030**: Implement src/embedding/service.rs (EmbeddingService async wrapper)
-- [ ] **T031**: Implement background model loading (spawn_blocking, non-blocking startup)
-- [ ] **T032**: Implement status tracking: Loading → Ready → Error states
+- [x] **T026**: Create src/embedding/config.rs (ModelType enum, EmbeddingConfig)
+- [x] **T027**: Implement src/embedding/engine.rs - EmbeddingEngine model loading via hf-hub
+- [x] **T028**: Implement src/embedding/engine.rs - embed() function with mean pooling, L2 norm
+- [x] **T029**: Implement src/embedding/cache.rs (EmbeddingCache LRU with blake3 keys)
+- [x] **T030**: Implement src/embedding/service.rs (EmbeddingService async wrapper)
+- [x] **T031**: Implement background model loading (spawn_blocking, non-blocking startup)
+- [x] **T032**: Implement status tracking: Loading → Ready → Error states
 - [ ] **T032a**: Write tests for WP04 components
 
 ### Success Criteria
@@ -159,16 +159,16 @@ All 3 subtasks are independent and can be developed in parallel.
 
 ### Subtasks
 
-- [ ] **T033**: Create src/server/handler.rs (MemoryMcpServer struct with AppState)
-- [ ] **T034**: Implement ServerHandler trait (get_info with server metadata)
-- [ ] **T035**: Implement tool: store_memory (content, memory_type, user_id, metadata)
-- [ ] **T036**: Implement tool: get_memory (id → Memory)
-- [ ] **T037**: Implement tool: update_memory (id, optional fields, re-embed on content change)
-- [ ] **T038**: Implement tool: delete_memory (id → hard delete)
-- [ ] **T039**: Implement tool: list_memories (limit, offset → paginated list)
-- [ ] **T040**: Create src/main.rs with clap CLI + ENV support via MEMORY_MCP_* prefix (--data-dir, --model, --cache-size, --batch-size, --timeout, --log-level, --list-models, --force-model, --reset-memory). CLI takes precedence over ENV.
+- [x] **T033**: Create src/server/handler.rs (MemoryMcpServer struct with AppState)
+- [x] **T034**: Implement ServerHandler trait (get_info with server metadata)
+- [x] **T035**: Implement tool: store_memory (content, memory_type, user_id, metadata)
+- [x] **T036**: Implement tool: get_memory (id → Memory)
+- [x] **T037**: Implement tool: update_memory (id, optional fields, re-embed on content change)
+- [x] **T038**: Implement tool: delete_memory (id → hard delete)
+- [x] **T039**: Implement tool: list_memories (limit, offset → paginated list)
+- [x] **T040**: Create src/main.rs with clap CLI + ENV support via MEMORY_MCP_* prefix (--data-dir, --model, --cache-size, --batch-size, --timeout, --log-level, --list-models, --force-model, --reset-memory). CLI takes precedence over ENV.
 - [ ] **T040a**: Implement dimension mismatch check on startup: compare model dimension with db_config.dimension, apply --force-model or --reset-memory logic per FR-041-044
-- [ ] **T041**: Wire up AppState with storage + embedding services
+- [x] **T041**: Wire up AppState with storage + embedding services
 - [ ] **T041a**: Write tests for WP05 components
 
 ### Success Criteria
@@ -188,11 +188,11 @@ All 3 subtasks are independent and can be developed in parallel.
 
 ### Subtasks
 
-- [ ] **T042**: Create src/graph/rrf.rs (rrf_merge function with k=60)
-- [ ] **T042a**: Implement Z-Score normalization in rrf.rs for balancing code/text scores
-- [ ] **T043**: Implement tool: search (vector similarity via HNSW, limit max 50 results per FR-011)
-- [ ] **T044**: Implement tool: search_text (BM25 full-text search, limit max 50 results per FR-011)
-- [ ] **T045**: Implement tool: recall (hybrid merge, PPR=0 placeholder, limit max 50 results per FR-011)
+- [x] **T042**: Create src/graph/rrf.rs (rrf_merge function with k=60)
+- [x] **T042a**: Implement Z-Score normalization in rrf.rs for balancing code/text scores
+- [x] **T043**: Implement tool: search (vector similarity via HNSW, limit max 50 results per FR-011)
+- [x] **T044**: Implement tool: search_text (BM25 full-text search, limit max 50 results per FR-011)
+- [x] **T045**: Implement tool: recall (hybrid merge, PPR=0 placeholder, limit max 50 results per FR-011)
 - [ ] **T045a**: Write tests for WP06 components
 
 ### Success Criteria
@@ -212,12 +212,12 @@ All 3 subtasks are independent and can be developed in parallel.
 
 ### Subtasks
 
-- [ ] **T046**: Create src/graph/ppr.rs (personalized_page_rank: damping=0.5, tolerance=1e-6, max_iter=15)
-- [ ] **T047**: Implement tool: create_entity (name, entity_type, description, user_id)
-- [ ] **T048**: Implement tool: create_relation (from_entity, to_entity, relation_type, weight)
-- [ ] **T049**: Implement tool: get_related (entity_id, depth, direction)
-- [ ] **T050**: Update recall tool to use real PPR scores
-- [ ] **T051**: Implement hub dampening (weight = score / sqrt(degree))
+- [x] **T046**: Create src/graph/ppr.rs (personalized_page_rank: damping=0.5, tolerance=1e-6, max_iter=15)
+- [x] **T047**: Implement tool: create_entity (name, entity_type, description, user_id)
+- [x] **T048**: Implement tool: create_relation (from_entity, to_entity, relation_type, weight)
+- [x] **T049**: Implement tool: get_related (entity_id, depth, direction)
+- [x] **T050**: Update recall tool to use real PPR scores
+- [x] **T051**: Implement hub dampening (weight = score / sqrt(degree))
 - [ ] **T051a**: Implement tool: detect_communities (Leiden algorithm)
 - [ ] **T051b**: Write tests for WP07 components
 
@@ -238,9 +238,9 @@ All 3 subtasks are independent and can be developed in parallel.
 
 ### Subtasks
 
-- [ ] **T052**: Implement tool: get_valid (currently valid memories)
-- [ ] **T053**: Implement tool: get_valid_at (memories valid at timestamp)
-- [ ] **T054**: Implement tool: invalidate (soft-delete with reason, superseded_by)
+- [x] **T052**: Implement tool: get_valid (currently valid memories)
+- [x] **T053**: Implement tool: get_valid_at (memories valid at timestamp)
+- [x] **T054**: Implement tool: invalidate (soft-delete with reason, superseded_by)
 - [ ] **T054a**: Write tests for WP08 components
 
 ### Success Criteria
@@ -259,15 +259,15 @@ All 3 subtasks are independent and can be developed in parallel.
 
 ### Subtasks
 
-- [ ] **T055**: Create src/codebase/scanner.rs (scan_directory, is_code_file, respect .gitignore/.memoryignore)
+- [x] **T055**: Create src/codebase/scanner.rs (scan_directory, is_code_file, respect .gitignore/.memoryignore)
 - [ ] **T055a**: Create src/codebase/watcher.rs (Debounced 500ms file watcher, auto-reindex)
-- [ ] **T056**: Create src/codebase/chunker.rs (chunk_file with tree-sitter AST parsing)
-- [ ] **T057**: Create src/codebase/indexer.rs (index_directory, batch embedding, adaptive sizing max 8192 tokens)
-- [ ] **T058**: Implement tool: index_project (path, mandatory watch flag)
-- [ ] **T059**: Implement tool: search_code (query, optional project_id filter)
-- [ ] **T060**: Implement tool: get_index_status (project_id → IndexStatus)
-- [ ] **T061**: Implement tool: list_projects (→ project IDs)
-- [ ] **T062**: Implement tool: delete_project (project_id → chunks deleted)
+- [x] **T056**: Create src/codebase/chunker.rs (chunk_file with tree-sitter AST parsing)
+- [x] **T057**: Create src/codebase/indexer.rs (index_directory, batch embedding, adaptive sizing max 8192 tokens)
+- [x] **T058**: Implement tool: index_project (path, mandatory watch flag)
+- [x] **T059**: Implement tool: search_code (query, optional project_id filter)
+- [x] **T060**: Implement tool: get_index_status (project_id → IndexStatus)
+- [x] **T061**: Implement tool: list_projects (→ project IDs)
+- [x] **T062**: Implement tool: delete_project (project_id → chunks deleted)
 - [ ] **T062a**: Write tests for WP09 components
 
 ### Success Criteria
@@ -287,12 +287,12 @@ All 3 subtasks are independent and can be developed in parallel.
 
 ### Subtasks
 
-- [ ] **T063**: Implement tool: get_status (version, memories_count, embedding status, model dimension)
-- [ ] **T063a**: Implement tool: reset_all_memory (confirm: true required, deletes all memories/entities/relations/code_chunks)
+- [x] **T063**: Implement tool: get_status (version, memories_count, embedding status, model dimension)
+- [x] **T063a**: Implement tool: reset_all_memory (confirm: true required, deletes all memories/entities/relations/code_chunks)
 - [ ] **T064**: Create Dockerfile (multi-stage production build)
 - [ ] **T065**: Create Dockerfile.local (dev build with pre-built binary)
-- [ ] **T066**: Error message cleanup and consistency
-- [ ] **T067**: Logging improvements (tracing to stderr)
+- [x] **T066**: Error message cleanup and consistency
+- [x] **T067**: Logging improvements (tracing to stderr)
 - [ ] **T068**: Create README.md with usage documentation (21 tools, ENV vars table)
 - [ ] **T069**: E2E test suite validation (target: 84+ tests)
 - [ ] **T069a**: Write tests for WP10 components

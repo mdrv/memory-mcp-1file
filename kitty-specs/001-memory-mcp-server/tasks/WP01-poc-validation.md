@@ -203,4 +203,4 @@ All 3 subtasks (T001, T002, T003) are completely independent and can be develope
 
 ## Activity Log
 
-- 2026-01-06T16:22:37Z – agent – lane=doing – Started implementation via workflow command
+- 2026-01-06T16:22:37Z -- agent -- lane=doing -- Started implementation via workflow command

@@ -33,8 +33,20 @@ pub fn personalized_page_rank(
 
     let mut scores = personalization.clone();
 
+    // Identify dangling nodes (nodes with no outgoing edges)
+    let dangling_nodes: Vec<NodeIndex> = graph
+        .node_indices()
+        .filter(|&node| graph.edges(node).count() == 0)
+        .collect();
+
     for _ in 0..max_iter {
         let mut new_scores = vec![0.0; n];
+
+        // Calculate dangling sum: total mass stuck at dangling nodes
+        let dangling_sum: f32 = dangling_nodes
+            .iter()
+            .map(|&node| scores[node.index()])
+            .sum();
 
         for node in graph.node_indices() {
             let out_degree = graph.edges(node).count();
@@ -46,7 +58,10 @@ pub fn personalized_page_rank(
             }
         }
 
+        // Redistribute dangling mass according to personalization vector
+        // and add teleport probability
         for i in 0..n {
+            new_scores[i] += damping * dangling_sum * personalization[i];
             new_scores[i] += (1.0 - damping) * personalization[i];
         }
 
