@@ -1,160 +1,142 @@
-# Memory MCP Server
+# 🧠 Memory MCP Server
 
-A Model Context Protocol (MCP) server that provides persistent memory for AI agents with semantic search, knowledge graph, and code search capabilities.
+[![Release](https://github.com/pomazanbohdan/memory-mcp-1file/actions/workflows/release.yml/badge.svg)](https://github.com/pomazanbohdan/memory-mcp-1file/actions/workflows/release.yml)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io-blue.svg)](https://github.com/pomazanbohdan/memory-mcp-1file/pkgs/container/memory-mcp-1file)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Features
+A high-performance **Model Context Protocol (MCP)** server that provides persistent, semantic, and graph-based memory for AI agents (Claude, Cursor, etc.).
 
-- **Semantic Memory**: Store and retrieve information using vector embeddings (FastEmbed).
-- **Graph Memory**: Manage entities and relations with PageRank-based traversal.
-- **Code Search**: Index and search local project codebases.
-- **Hybrid Retrieval**: Combine vector search, BM25 keyword search, and graph algorithms (PPR) for optimal recall.
-- **Temporal Validity**: Track when memories are valid (`valid_from`, `valid_until`).
-- **SurrealDB Backend**: Embedded, high-performance database.
+It goes beyond simple file storage by combining:
+1.  **Vector Search** (FastEmbed) for semantic similarity.
+2.  **Knowledge Graph** (PetGraph) for entity relationships.
+3.  **Code Indexing** for understanding your codebase.
+4.  **Hybrid Retrieval** (Reciprocal Rank Fusion) for best results.
 
-## Installation
+---
 
-### From Source
+## 🚀 Quick Start
+
+### Option 1: Docker (Recommended)
+
+No installation required. Run directly from GitHub Container Registry.
+
+**Interactive Run (Test):**
+```bash
+# Create a volume for persistent data
+docker volume create mcp-data
+
+# Run
+docker run -i --rm -v mcp-data:/data ghcr.io/pomazanbohdan/memory-mcp-1file:latest
+```
+
+### Option 2: Local Binary
+
+If you have Rust installed:
 
 ```bash
-git clone <repository-url>
-cd memory-mcp
 cargo install --path .
-```
-
-### Docker
-
-```bash
-docker build -t memory-mcp .
-docker run -v $(pwd)/data:/data memory-mcp
-```
-
-## Usage
-
-Start the server:
-
-```bash
 memory-mcp
 ```
 
-### Configuration
+---
 
-You can configure the server using CLI arguments.
+## 🔌 Client Configuration
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--data-dir` | `~/.local/share/memory-mcp` | Directory for database storage |
-| `--model` | `e5_multi` | Embedding model (`e5_small`, `e5_multi`, `nomic`, `bge_m3`) |
-| `--log-level` | `info` | Logging verbosity |
-| `--cache-size` | `1000` | Number of embeddings to cache in memory |
-| `--batch-size` | `32` | Batch size for embedding generation |
-| `--timeout` | `30000` | Request timeout in milliseconds |
+### Claude Desktop
 
-To list available models and their sizes:
-```bash
-memory-mcp --list-models
-```
+Add this to your `claude_desktop_config.json` (usually in `~/Library/Application Support/Claude/` on macOS or `%APPDATA%\Claude\` on Windows).
 
-## MCP Tools Reference
-
-The server exposes **21 tools** for comprehensive memory management.
-
-### Memory Operations
-
-| Tool | Description |
-|------|-------------|
-| `store_memory` | Store a new memory with content and optional metadata. |
-| `get_memory` | Retrieve a memory by its ID. |
-| `update_memory` | Update content or metadata of an existing memory. |
-| `delete_memory` | Delete a memory by ID. |
-| `list_memories` | List recent memories with pagination. |
-| `invalidate` | Soft-delete a memory (mark as invalid from now on). |
-| `get_valid` | Get all currently valid memories. |
-| `get_valid_at` | Get memories that were valid at a specific timestamp. |
-
-### Search & Retrieval
-
-| Tool | Description |
-|------|-------------|
-| `search` | Semantic search using vector similarity. |
-| `search_text` | Keyword search using BM25. |
-| `recall` | Hybrid search combining Vector + BM25 + Knowledge Graph (PPR). |
-
-### Knowledge Graph
-
-| Tool | Description |
-|------|-------------|
-| `create_entity` | Create a node in the knowledge graph. |
-| `create_relation` | Connect two entities with a directed relation. |
-| `get_related` | Find related entities up to a specified depth. |
-
-### Codebase Indexing
-
-| Tool | Description |
-|------|-------------|
-| `index_project` | Index a local directory for code search. |
-| `search_code` | Search indexed code using natural language. |
-| `get_index_status`| Check the status of a project indexing job. |
-| `list_projects` | List all indexed projects. |
-| `delete_project` | Remove a project and its code chunks from the index. |
-
-### System
-
-| Tool | Description |
-|------|-------------|
-| `get_status` | Get server health and stats (memory count, version). |
-| `reset_all_memory`| Clear all data (requires confirmation). |
-
-## Examples
-
-### Storing a Memory
-
+**Using Docker (Easiest):**
 ```json
 {
-  "name": "store_memory",
-  "arguments": {
-    "content": "The user prefers Python for data analysis tasks.",
-    "memory_type": "semantic",
-    "metadata": {
-      "confidence": 0.9,
-      "source": "user_chat"
+  "mcpServers": {
+    "memory": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-v",
+        "mcp-data:/data",
+        "ghcr.io/pomazanbohdan/memory-mcp-1file:latest"
+      ]
     }
   }
 }
 ```
 
-### Hybrid Search (Recall)
-
+**Using Local Binary:**
 ```json
 {
-  "name": "recall",
-  "arguments": {
-    "query": "What are the user's coding preferences?",
-    "limit": 5,
-    "vector_weight": 0.7,
-    "bm25_weight": 0.3
+  "mcpServers": {
+    "memory": {
+      "command": "memory-mcp",
+      "args": ["--data-dir", "/Users/yourname/.local/share/memory-mcp"]
+    }
   }
 }
 ```
 
-### Knowledge Graph Relation
+### Cursor (IDE)
 
-```json
-{
-  "name": "create_relation",
-  "arguments": {
-    "from_entity": "user_id_123",
-    "to_entity": "python_lang",
-    "relation_type": "prefers",
-    "weight": 1.0
-  }
-}
-```
+1.  Go to **Cursor Settings** > **Features** > **MCP Servers**.
+2.  Click **+ Add New MCP Server**.
+3.  **Type**: `stdio`
+4.  **Name**: `memory`
+5.  **Command**:
+    ```bash
+    docker run -i --rm -v mcp-data:/data ghcr.io/pomazanbohdan/memory-mcp-1file:latest
+    ```
 
-## Architecture
+---
 
-- **Storage**: SurrealDB (Embedded)
-- **Vectors**: fastembed-rs (ONNX Runtime)
-- **Graph**: petgraph for in-memory traversal (PPR)
+## ✨ Key Features
+
+- **Semantic Memory**: Stores text with vector embeddings (`e5-small` by default) for "vibe-based" retrieval.
+- **Graph Memory**: Tracks entities (`User`, `Project`, `Tech`) and their relations (`uses`, `likes`). Supports PageRank-based traversal.
+- **Code Intelligence**: Indexes local project directories (AST-based chunking) to answer questions about your code.
+- **Temporal Validity**: Memories can have `valid_from` and `valid_until` dates.
+- **SurrealDB Backend**: Fast, embedded, single-file database.
+
+---
+
+## 🛠️ Tools Available
+
+The server exposes **21 tools** to the AI model.
+
+### 🧠 Core Memory
+| Tool | Description |
+|------|-------------|
+| `store_memory` | Store a new memory with content and optional metadata. |
+| `recall` | **Hybrid search** (Vector + Keyword + Graph). Best for general questions. |
+| `search` | Pure vector search. |
+| `search_text` | Exact keyword match (BM25). |
+| `get_valid` | Get currently active memories (filters out expired ones). |
+
+### 🕸️ Knowledge Graph
+| Tool | Description |
+|------|-------------|
+| `create_entity` | Define a node (e.g., "React", "Authentication"). |
+| `create_relation` | Link nodes (e.g., "Project" -> "uses" -> "React"). |
+| `get_related` | Find connected concepts. |
+
+### 💻 Codebase
+| Tool | Description |
+|------|-------------|
+| `index_project` | Scan a local folder for code. |
+| `search_code` | Semantic search over code chunks. |
+
+---
+
+## ⚙️ Configuration
+
+Environment variables or CLI args:
+
+| Arg | Env | Default | Description |
+|-----|-----|---------|-------------|
+| `--data-dir` | `DATA_DIR` | `./data` | DB location |
+| `--model` | `EMBEDDING_MODEL` | `e5_multi` | Embedding model (`e5_small`, `e5_multi`, `nomic`, `bge_m3`) |
+| `--log-level` | `LOG_LEVEL` | `info` | Verbosity |
 
 ## License
 
