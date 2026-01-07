@@ -42,11 +42,19 @@ memory-mcp
 
 ## 🔌 Client Configuration
 
-### Claude Desktop
+### Universal Docker Configuration (Any IDE/CLI)
 
-Add this to your `claude_desktop_config.json` (usually in `~/Library/Application Support/Claude/` on macOS or `%APPDATA%\Claude\` on Windows).
+To use this MCP server with any client (Claude Desktop, Cursor, Cline, OpenCode, etc.), use the following Docker command structure.
 
-**Using Docker (Easiest):**
+**Key Requirements:**
+1.  **Memory Volume**: `-v mcp-data:/data` (Persists your graph and embeddings)
+2.  **Project Volume**: `-v $(pwd):/project:ro` (Allows the server to read and index your code)
+3.  **Init Process**: `--init` (Ensures the server shuts down cleanly)
+
+#### JSON Configuration (Claude Desktop, etc.)
+
+Add this to your configuration file (e.g., `claude_desktop_config.json`):
+
 ```json
 {
   "mcpServers": {
@@ -54,10 +62,11 @@ Add this to your `claude_desktop_config.json` (usually in `~/Library/Application
       "command": "docker",
       "args": [
         "run",
+        "--init",
         "-i",
         "--rm",
-        "-v",
-        "mcp-data:/data",
+        "-v", "mcp-data:/data",
+        "-v", "/absolute/path/to/your/project:/project:ro",
         "ghcr.io/pomazanbohdan/memory-mcp-1file:latest"
       ]
     }
@@ -65,19 +74,9 @@ Add this to your `claude_desktop_config.json` (usually in `~/Library/Application
 }
 ```
 
-**Using Local Binary:**
-```json
-{
-  "mcpServers": {
-    "memory": {
-      "command": "memory-mcp",
-      "args": ["--data-dir", "/Users/yourname/.local/share/memory-mcp"]
-    }
-  }
-}
-```
+> **Note:** Replace `/absolute/path/to/your/project` with the actual path you want to index. In some environments (like Cursor or VSCode extensions), you might be able to use variables like `${workspaceFolder}`, but absolute paths are most reliable for Docker.
 
-### Cursor (IDE)
+### Cursor (Specific Instructions)
 
 1.  Go to **Cursor Settings** > **Features** > **MCP Servers**.
 2.  Click **+ Add New MCP Server**.
@@ -85,8 +84,18 @@ Add this to your `claude_desktop_config.json` (usually in `~/Library/Application
 4.  **Name**: `memory`
 5.  **Command**:
     ```bash
-    docker run -i --rm -v mcp-data:/data ghcr.io/pomazanbohdan/memory-mcp-1file:latest
+    docker run --init -i --rm -v mcp-data:/data -v "/Users/yourname/projects/current:/project:ro" ghcr.io/pomazanbohdan/memory-mcp-1file:latest
     ```
+    *(Remember to update the project path when switching workspaces if you need code indexing)*
+
+### OpenCode / CLI
+
+```bash
+docker run --init -i --rm \
+  -v mcp-data:/data \
+  -v $(pwd):/project:ro \
+  ghcr.io/pomazanbohdan/memory-mcp-1file:latest
+```
 
 ---
 
