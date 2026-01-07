@@ -33,6 +33,56 @@ It combines:
 
 ---
 
+## 🤖 Agent Integration (System Prompt)
+
+Memory is useless if your agent doesn't check it. To get the "Long-Term Memory" effect, you must instruct your agent to follow a strict protocol.
+
+We provide a battle-tested **[Memory Protocol (AGENTS.md)](./AGENTS.md)** that you can adapt.
+
+### 🛡️ Core Workflows (Context Protection)
+
+The protocol implements specific flows to handle **Context Window Compaction** and **Session Restarts**:
+
+1.  **🚀 Session Startup**: The agent *must* search for `TASK: in_progress` immediately. This restores the full context of what was happening before the last session ended or the context was compacted.
+2.  **⏳ Auto-Continue**: A safety mechanism where the agent presents the found task to the user and waits (or auto-continues), ensuring it doesn't hallucinate a new task.
+3.  **🔄 Triple Sync**: Updates **Memory**, **Todo List**, and **Files** simultaneously. If one fails (e.g., context lost), the others serve as backups.
+4.  **🧱 Prefix System**: All memories use prefixes (`TASK:`, `DECISION:`, `RESEARCH:`) so semantic search can precisely target the right type of information, reducing noise.
+
+These workflows turn the agent from a "stateless chatbot" into a "stateful worker" that survives restarts and context clearing.
+
+### Recommended System Prompt Snippet
+
+Copy this into your `.cursorrules` or Claude Project instructions:
+
+```markdown
+# 🧠 Memory Protocol
+You have access to a persistent memory server. You MUST use it to maintain context across sessions.
+
+1.  **Session Start (Mandatory):**
+    - ALWAYS begin by running `search_text("TASK:")` or `get_valid` to see what was left unfinished.
+    - If a task is found, summarize it and ask the user if they want to continue.
+
+2.  **Storage Structure:**
+    - Use prefixes for clarity:
+      - `PROJECT:` High-level goals and tech stack.
+      - `TASK:` Current active work (Status: in_progress/completed).
+      - `DECISION:` Important architectural choices.
+      - `USER:` User preferences and constraints.
+
+3.  **Work Cycle:**
+    - Before starting a task: `store_memory("TASK: ... Status: in_progress")`
+    - After completion: `invalidate` the old task and `store_memory("TASK: ... Status: completed")`
+
+4.  **Retrieval:**
+    - Before writing code, use `search_code` to understand existing patterns.
+    - Use `recall` to find relevant documentation or past decisions.
+```
+
+### Why this matters?
+Without this protocol, the agent will treat every session as a blank slate. With this protocol, it "remembers" what it was doing yesterday.
+
+---
+
 ## 🚀 Quick Start
 
 ### Option 1: Docker (Recommended)
@@ -165,56 +215,6 @@ Environment variables or CLI args:
 | `--data-dir` | `DATA_DIR` | `./data` | DB location |
 | `--model` | `EMBEDDING_MODEL` | `e5_multi` | Embedding model (`e5_small`, `e5_multi`, `nomic`, `bge_m3`) |
 | `--log-level` | `LOG_LEVEL` | `info` | Verbosity |
-
----
-
-## 🤖 Agent Integration (System Prompt)
-
-Memory is useless if your agent doesn't check it. To get the "Long-Term Memory" effect, you must instruct your agent to follow a strict protocol.
-
-We provide a battle-tested **[Memory Protocol (AGENTS.md)](./AGENTS.md)** that you can adapt.
-
-### 🛡️ Core Workflows (Context Protection)
-
-The protocol implements specific flows to handle **Context Window Compaction** and **Session Restarts**:
-
-1.  **🚀 Session Startup**: The agent *must* search for `TASK: in_progress` immediately. This restores the full context of what was happening before the last session ended or the context was compacted.
-2.  **⏳ Auto-Continue**: A safety mechanism where the agent presents the found task to the user and waits (or auto-continues), ensuring it doesn't hallucinate a new task.
-3.  **🔄 Triple Sync**: Updates **Memory**, **Todo List**, and **Files** simultaneously. If one fails (e.g., context lost), the others serve as backups.
-4.  **🧱 Prefix System**: All memories use prefixes (`TASK:`, `DECISION:`, `RESEARCH:`) so semantic search can precisely target the right type of information, reducing noise.
-
-These workflows turn the agent from a "stateless chatbot" into a "stateful worker" that survives restarts and context clearing.
-
-### Recommended System Prompt Snippet
-
-Copy this into your `.cursorrules` or Claude Project instructions:
-
-```markdown
-# 🧠 Memory Protocol
-You have access to a persistent memory server. You MUST use it to maintain context across sessions.
-
-1.  **Session Start (Mandatory):**
-    - ALWAYS begin by running `search_text("TASK:")` or `get_valid` to see what was left unfinished.
-    - If a task is found, summarize it and ask the user if they want to continue.
-
-2.  **Storage Structure:**
-    - Use prefixes for clarity:
-      - `PROJECT:` High-level goals and tech stack.
-      - `TASK:` Current active work (Status: in_progress/completed).
-      - `DECISION:` Important architectural choices.
-      - `USER:` User preferences and constraints.
-
-3.  **Work Cycle:**
-    - Before starting a task: `store_memory("TASK: ... Status: in_progress")`
-    - After completion: `invalidate` the old task and `store_memory("TASK: ... Status: completed")`
-
-4.  **Retrieval:**
-    - Before writing code, use `search_code` to understand existing patterns.
-    - Use `recall` to find relevant documentation or past decisions.
-```
-
-### Why this matters?
-Without this protocol, the agent will treat every session as a blank slate. With this protocol, it "remembers" what it was doing yesterday.
 
 ## License
 
