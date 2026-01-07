@@ -5,7 +5,15 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Architecture](https://img.shields.io/badge/Architecture-Single%20Binary-success.svg)](#)
 
-A high-performance **Model Context Protocol (MCP)** server that provides persistent, semantic, and graph-based memory for AI agents (Claude, Cursor, etc.).
+A high-performance **Model Context Protocol (MCP)** server that provides persistent, semantic, and graph-based memory for AI agents.
+
+Works perfectly with:
+*   **Claude Desktop**
+*   **Claude Code** (CLI)
+*   **Cursor**
+*   **OpenCode**
+*   **Cline** / **Roo Code**
+*   Any other MCP-compliant client.
 
 ### 🏆 The "All-in-One" Advantage
 
@@ -54,7 +62,7 @@ memory-mcp
 
 ### Universal Docker Configuration (Any IDE/CLI)
 
-To use this MCP server with any client (Claude Desktop, Cursor, Cline, OpenCode, etc.), use the following Docker command structure.
+To use this MCP server with any client (**Claude Code**, **OpenCode**, **Cline**, etc.), use the following Docker command structure.
 
 **Key Requirements:**
 1.  **Memory Volume**: `-v mcp-data:/data` (Persists your graph and embeddings)
