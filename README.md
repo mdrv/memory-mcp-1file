@@ -174,6 +174,17 @@ Memory is useless if your agent doesn't check it. To get the "Long-Term Memory" 
 
 We provide a battle-tested **[Memory Protocol (AGENTS.md)](./AGENTS.md)** that you can adapt.
 
+### 🛡️ Core Workflows (Context Protection)
+
+The protocol implements specific flows to handle **Context Window Compaction** and **Session Restarts**:
+
+1.  **🚀 Session Startup**: The agent *must* search for `TASK: in_progress` immediately. This restores the full context of what was happening before the last session ended or the context was compacted.
+2.  **⏳ Auto-Continue**: A safety mechanism where the agent presents the found task to the user and waits (or auto-continues), ensuring it doesn't hallucinate a new task.
+3.  **🔄 Triple Sync**: Updates **Memory**, **Todo List**, and **Files** simultaneously. If one fails (e.g., context lost), the others serve as backups.
+4.  **🧱 Prefix System**: All memories use prefixes (`TASK:`, `DECISION:`, `RESEARCH:`) so semantic search can precisely target the right type of information, reducing noise.
+
+These workflows turn the agent from a "stateless chatbot" into a "stateful worker" that survives restarts and context clearing.
+
 ### Recommended System Prompt Snippet
 
 Copy this into your `.cursorrules` or Claude Project instructions:
