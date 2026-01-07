@@ -28,7 +28,91 @@ jobs:
           prerelease: false
           generate_release_notes: true
 
-  build-release:
+  # 🚀 Critical Path: Build MUSL -> Publish Docker
+  build-musl:
+    needs: create-release
+    name: Build Linux MUSL (Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-unknown-linux-musl
+
+      - name: Build MUSL
+        run: |
+          cargo install cross
+          cross build --release --target x86_64-unknown-linux-musl
+        shell: bash
+
+      - name: Package Artifacts
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          BINARY_NAME="memory-mcp"
+          BIN_PATH="target/x86_64-unknown-linux-musl/release/$BINARY_NAME"
+          ASSET_NAME="memory-mcp-$VERSION-x86_64-unknown-linux-musl.tar.gz"
+          
+          echo "Packaging $BIN_PATH to $ASSET_NAME"
+          tar -czf "$ASSET_NAME" -C $(dirname "$BIN_PATH") "$BINARY_NAME"
+          
+          echo "ASSET_NAME=$ASSET_NAME" >> $GITHUB_ENV
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.ASSET_NAME }}
+
+  docker-release:
+    needs: build-musl
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+
+      - name: Prepare Version
+        id: prep
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.release
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.prep.outputs.VERSION }}
+            REPO=${{ github.repository }}
+
+  # 📦 Secondary Path: Build other binaries
+  build-others:
     needs: create-release
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
@@ -36,31 +120,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux MUSL (Critical for Docker Alpine)
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            use_cross: true
-            archive_ext: .tar.gz
-            
-          # Linux GNU (Standard)
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             use_cross: false
             archive_ext: .tar.gz
-
-          # Windows
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             use_cross: false
             archive_ext: .zip
-            
-          # macOS Apple Silicon
           - target: aarch64-apple-darwin
             os: macos-latest
             use_cross: false
             archive_ext: .tar.gz
-
-          # macOS Intel
           - target: x86_64-apple-darwin
             os: macos-latest
             use_cross: false
@@ -115,44 +186,3 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ env.ASSET_NAME }}
-
-  docker-release:
-    needs: build-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
-
-      - name: Prepare Version
-        id: prep
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile.release
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ steps.prep.outputs.VERSION }}
-            REPO=${{ github.repository }}

@@ -1,6 +1,6 @@
 [package]
 name = "memory-mcp"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "MCP memory server for AI agents"
 license = "MIT"
@@ -47,7 +47,7 @@ anyhow = "1"
 thiserror = "2"
 
 # CLI
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }

@@ -13,30 +13,30 @@ use memory_mcp::storage::{StorageBackend, SurrealStorage};
 #[command(name = "memory-mcp")]
 #[command(about = "MCP memory server for AI agents")]
 struct Cli {
-    #[arg(long, default_value_os_t = default_data_dir())]
+    #[arg(long, env, default_value_os_t = default_data_dir())]
     data_dir: PathBuf,
 
-    #[arg(long, default_value = "e5_multi")]
+    #[arg(long, env = "EMBEDDING_MODEL", default_value = "e5_multi")]
     model: String,
 
-    #[arg(long, default_value = "1000")]
+    #[arg(long, env, default_value = "1000")]
     cache_size: usize,
 
-    #[arg(long, default_value = "32")]
+    #[arg(long, env, default_value = "32")]
     batch_size: usize,
 
-    #[arg(long, default_value = "30000")]
+    #[arg(long, env = "TIMEOUT_MS", default_value = "30000")]
     timeout: u64,
 
-    #[arg(long, default_value = "info")]
+    #[arg(long, env = "LOG_LEVEL", default_value = "info")]
     log_level: String,
 
     /// Idle timeout in minutes. Server exits if no requests for this duration. 0 = disabled.
-    #[arg(long, default_value = "30")]
+    #[arg(long, env, default_value = "30")]
     idle_timeout: u64,
 
     /// Reconnect timeout in seconds before shutdown after connection loss.
-    #[arg(long, default_value = "10")]
+    #[arg(long, env, default_value = "10")]
     reconnect_timeout: u64,
 
     #[arg(long)]

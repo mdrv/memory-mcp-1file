@@ -211,6 +211,25 @@ Environment variables or CLI args:
 | `--model` | `EMBEDDING_MODEL` | `e5_multi` | Embedding model (`e5_small`, `e5_multi`, `nomic`, `bge_m3`) |
 | `--log-level` | `LOG_LEVEL` | `info` | Verbosity |
 
+### 🧠 Available Models
+
+You can switch the embedding model using the `--model` arg or `EMBEDDING_MODEL` env var.
+
+| Argument Value | HuggingFace Repo | Dimensions | Size | Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| `e5_small` | `intfloat/multilingual-e5-small` | 384 | 134 MB | Fastest, minimal RAM. Good for dev/testing. |
+| `e5_multi` | `intfloat/multilingual-e5-base` | 768 | 1.1 GB | **Default**. Best balance of quality/speed. |
+| `nomic` | `nomic-ai/nomic-embed-text-v1.5` | 768 | 1.9 GB | High quality long-context embeddings. |
+| `bge_m3` | `BAAI/bge-m3` | 1024 | 2.3 GB | State-of-the-art multilingual quality. Heavy. |
+
+> [!WARNING]
+> **Changing Models & Data Compatibility**
+>
+> If you switch to a model with different dimensions (e.g., from `e5_small` to `e5_multi`), **your existing database will be incompatible**.
+> You must delete the data directory (volume) and re-index your data.
+>
+> Switching between models with the same dimensions (e.g., `e5_multi` <-> `nomic`) is theoretically possible but not recommended as semantic spaces differ.
+
 ## License
 
 MIT
