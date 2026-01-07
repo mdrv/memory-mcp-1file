@@ -52,30 +52,25 @@ These workflows turn the agent from a "stateless chatbot" into a "stateful worke
 
 ### Recommended System Prompt Snippet
 
-Copy this into your `.cursorrules` or Claude Project instructions:
+Instead of scattering instructions across IDE-specific files (like `.cursorrules`), establish `AGENTS.md` as the **Single Source of Truth**.
+
+Instruct your agent (in its base system prompt) to:
+1.  **Read `AGENTS.md`** at the start of every session.
+2.  **Follow the protocols** defined therein.
+
+Here is a minimal reference prompt to bootstrap this behavior:
 
 ```markdown
-# 🧠 Memory Protocol
-You have access to a persistent memory server. You MUST use it to maintain context across sessions.
+# 🧠 Memory & Protocol
+You have access to a persistent memory server and a protocol definition file.
 
-1.  **Session Start (Mandatory):**
-    - ALWAYS begin by running `search_text("TASK:")` or `get_valid` to see what was left unfinished.
-    - If a task is found, summarize it and ask the user if they want to continue.
+1.  **Protocol Adherence**:
+    - READ `AGENTS.md` immediately upon starting.
+    - Strictly follow the "Session Startup" and "Sync" protocols defined there.
 
-2.  **Storage Structure:**
-    - Use prefixes for clarity:
-      - `PROJECT:` High-level goals and tech stack.
-      - `TASK:` Current active work (Status: in_progress/completed).
-      - `DECISION:` Important architectural choices.
-      - `USER:` User preferences and constraints.
-
-3.  **Work Cycle:**
-    - Before starting a task: `store_memory("TASK: ... Status: in_progress")`
-    - After completion: `invalidate` the old task and `store_memory("TASK: ... Status: completed")`
-
-4.  **Retrieval:**
-    - Before writing code, use `search_code` to understand existing patterns.
-    - Use `recall` to find relevant documentation or past decisions.
+2.  **Context Restoration**:
+    - Run `search_text("TASK: in_progress")` to restore context.
+    - Do NOT ask the user "what should I do?" if a task is already in progress.
 ```
 
 ### Why this matters?
