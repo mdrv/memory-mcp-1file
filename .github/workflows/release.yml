@@ -92,7 +92,7 @@ jobs:
       - name: Package Artifacts
         shell: bash
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${GITHUB_REF#refs/tags/v}
           BINARY_NAME="memory-mcp"
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             BINARY_NAME="memory-mcp.exe"
