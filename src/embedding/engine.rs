@@ -122,6 +122,95 @@ impl EmbeddingEngine {
         Ok(vec)
     }
 
+    pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(vec![]);
+        }
+
+        if self.model.is_none() || self.tokenizer.is_none() {
+            // Mock embedding: deterministic but random-looking for each text
+            let mut results = Vec::with_capacity(texts.len());
+            for text in texts {
+                let mut vec = vec![0.0; self.dimensions];
+                let hash = blake3::hash(text.as_bytes());
+                let hash_bytes = hash.as_bytes();
+                for i in 0..self.dimensions {
+                    let byte = hash_bytes[i % 32];
+                    vec[i] = (byte as f32 / 255.0) * 2.0 - 1.0;
+                }
+                results.push(vec);
+            }
+            return Ok(results);
+        }
+
+        let tokenizer = self.tokenizer.as_ref().unwrap();
+        let model = self.model.as_ref().unwrap();
+
+        // 1. Tokenize all texts
+        let mut all_token_ids = Vec::with_capacity(texts.len());
+        let mut all_token_type_ids = Vec::with_capacity(texts.len());
+        let mut max_len = 0;
+
+        for text in texts {
+            let tokens = tokenizer
+                .encode(text.as_str(), true)
+                .map_err(anyhow::Error::msg)?;
+            let token_ids = tokens.get_ids();
+            let type_ids = tokens.get_type_ids();
+            max_len = max_len.max(token_ids.len());
+            all_token_ids.push(token_ids.to_vec());
+            all_token_type_ids.push(type_ids.to_vec());
+        }
+
+        // 2. Pad and create batch tensors
+        // This is a naive implementation. For real batching with candle/huggingface,
+        // we should create a single Tensor with shape (batch_size, max_seq_len).
+
+        // Flatten for Tensor creation
+        let mut flat_token_ids = Vec::with_capacity(texts.len() * max_len);
+        let mut flat_type_ids = Vec::with_capacity(texts.len() * max_len);
+
+        for (ids, types) in all_token_ids.iter().zip(all_token_type_ids.iter()) {
+            // Copy data
+            flat_token_ids.extend_from_slice(ids);
+            flat_type_ids.extend_from_slice(types);
+
+            // Padding (0)
+            let pad_len = max_len - ids.len();
+            flat_token_ids.extend(std::iter::repeat(0).take(pad_len));
+            flat_type_ids.extend(std::iter::repeat(0).take(pad_len));
+        }
+
+        let batch_token_ids = Tensor::new(flat_token_ids.as_slice(), &self.device)?
+            .reshape((texts.len(), max_len))?;
+
+        let batch_token_type_ids =
+            Tensor::new(flat_type_ids.as_slice(), &self.device)?.reshape((texts.len(), max_len))?;
+
+        // 3. Forward pass
+        let embeddings = model.forward(&batch_token_ids, &batch_token_type_ids, None)?;
+
+        // 4. Mean pooling
+        let (_n_batch, seq_len, _hidden_size) = embeddings.dims3()?;
+        let pooled = (embeddings.sum(1)? / (seq_len as f64))?;
+
+        // 5. Normalize
+        // Normalize each vector in the batch independently
+        // pooled is (batch_size, hidden_size)
+        // sqr().sum(1) gives (batch_size) -> norms squared
+        let norms_sq = pooled.sqr()?.sum(1)?;
+        let norms = norms_sq.sqrt()?;
+        // reshape norms to (batch_size, 1) to broadcast
+        let norms_reshaped = norms.reshape((texts.len(), 1))?;
+        let normalized = pooled.broadcast_div(&norms_reshaped)?;
+
+        // 6. Extract vectors
+        // normalized.to_vec2() returns Vec<Vec<f32>>
+        let vectors: Vec<Vec<f32>> = normalized.to_vec2()?;
+
+        Ok(vectors)
+    }
+
     pub fn dimensions(&self) -> usize {
         self.dimensions
     }

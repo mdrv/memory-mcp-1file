@@ -3,12 +3,16 @@ mod cleanup;
 mod config;
 mod engine;
 mod service;
+pub mod store;
+pub mod worker;
 
 pub use cache::{CacheStats, EmbeddingCache};
 pub use cleanup::{cleanup_model_cache, CleanupConfig, CleanupResult};
 pub use config::{EmbeddingConfig, ModelType};
 pub use engine::EmbeddingEngine;
 pub use service::EmbeddingService;
+pub use store::EmbeddingStore;
+pub use worker::{EmbeddingRequest, EmbeddingTarget, EmbeddingWorker};
 
 /// Loading phase for detailed progress tracking
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -32,7 +36,7 @@ impl std::fmt::Display for LoadingPhase {
             Self::FetchingConfig => write!(f, "Fetching config..."),
             Self::FetchingTokenizer => write!(f, "Fetching tokenizer..."),
             Self::FetchingWeights => write!(f, "Downloading model weights..."),
-            Self::VerifyingWeights => write!(f, "Verifying model integrity (hashing)..."),
+            Self::VerifyingWeights => write!(f, "Verifying model integrity (hashing)... This is a one-time process for the model loading."),
             Self::LoadingModel => write!(f, "Loading model into memory..."),
             Self::WarmingUp => write!(f, "Warming up model..."),
         }

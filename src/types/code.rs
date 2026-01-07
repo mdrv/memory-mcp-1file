@@ -57,6 +57,7 @@ pub enum Language {
     JavaScript,
     TypeScript,
     Go,
+    Java,
     #[default]
     Unknown,
 }
@@ -77,6 +78,9 @@ pub struct IndexStatus {
 
     #[serde(default)]
     pub total_chunks: u32,
+
+    #[serde(default)]
+    pub total_symbols: u32,
 
     #[serde(default = "default_datetime")]
     pub started_at: Datetime,
@@ -115,6 +119,7 @@ impl IndexStatus {
             total_files: 0,
             indexed_files: 0,
             total_chunks: 0,
+            total_symbols: 0,
             started_at: Datetime::default(),
             completed_at: None,
             error_message: None,

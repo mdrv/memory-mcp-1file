@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 
-use super::cache::{CacheStats, EmbeddingCache};
+use super::cache::EmbeddingCache;
 use super::cleanup::{cleanup_model_cache, CleanupConfig};
 use super::config::{EmbeddingConfig, ModelType};
 use super::engine::EmbeddingEngine;
@@ -291,7 +291,7 @@ impl EmbeddingService {
         self.config.model.dimensions()
     }
 
-    pub fn cache_stats(&self) -> CacheStats {
-        self.cache.stats()
+    pub fn get_engine(&self) -> Arc<RwLock<Option<EmbeddingEngine>>> {
+        self.engine.clone()
     }
 }

@@ -1,7 +1,10 @@
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
-use crate::embedding::EmbeddingService;
+use tokio::sync::mpsc;
+
+use crate::embedding::{EmbeddingRequest, EmbeddingService, EmbeddingStore};
 use crate::storage::SurrealStorage;
 
 #[derive(Debug, Clone)]
@@ -22,9 +25,23 @@ impl Default for AppConfig {
                 .join("memory-mcp"),
             model: "e5_multi".to_string(),
             cache_size: 1000,
-            batch_size: 32,
+            batch_size: 8,
             timeout_ms: 30000,
             log_level: "info".to_string(),
+        }
+    }
+}
+
+pub struct IndexMonitor {
+    pub total_files: AtomicU32,
+    pub indexed_files: AtomicU32,
+}
+
+impl Default for IndexMonitor {
+    fn default() -> Self {
+        Self {
+            total_files: AtomicU32::new(0),
+            indexed_files: AtomicU32::new(0),
         }
     }
 }
@@ -33,4 +50,7 @@ pub struct AppState {
     pub config: AppConfig,
     pub storage: Arc<SurrealStorage>,
     pub embedding: Arc<EmbeddingService>,
+    pub embedding_store: Arc<EmbeddingStore>,
+    pub embedding_queue: mpsc::Sender<EmbeddingRequest>,
+    pub monitor: Arc<IndexMonitor>,
 }

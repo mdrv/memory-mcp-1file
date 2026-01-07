@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use surrealdb::sql::Datetime;
 
 use crate::types::{
-    CodeChunk, Direction, Entity, IndexStatus, Memory, MemoryUpdate, Relation, ScoredCodeChunk,
-    SearchResult,
+    CodeChunk, CodeSymbol, Direction, Entity, IndexStatus, Memory, MemoryUpdate, Relation,
+    ScoredCodeChunk, SearchResult, SymbolRelation,
 };
 use crate::Result;
 
@@ -138,8 +138,7 @@ pub trait StorageBackend: Send + Sync {
     /// Create a single code chunk, returns the generated ID
     async fn create_code_chunk(&self, chunk: CodeChunk) -> Result<String>;
 
-    /// Create multiple code chunks in a batch, returns count of created chunks
-    async fn create_code_chunks_batch(&self, chunks: Vec<CodeChunk>) -> Result<usize>;
+    async fn create_code_chunks_batch(&self, chunks: Vec<CodeChunk>) -> Result<Vec<String>>;
 
     /// Delete all code chunks for a project, returns count of deleted chunks
     async fn delete_project_chunks(&self, project_id: &str) -> Result<usize>;
@@ -157,8 +156,55 @@ pub trait StorageBackend: Send + Sync {
     /// Update/upsert indexing status for a project
     async fn update_index_status(&self, status: IndexStatus) -> Result<()>;
 
+    /// Delete indexing status for a project
+    async fn delete_index_status(&self, project_id: &str) -> Result<()>;
+
     /// List all indexed project IDs
     async fn list_projects(&self) -> Result<Vec<String>>;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Code Graph operations
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Create a single code symbol
+    async fn create_code_symbol(&self, symbol: CodeSymbol) -> Result<String>;
+
+    /// Create multiple code symbols in a batch, returns IDs of created symbols
+    async fn create_code_symbols_batch(&self, symbols: Vec<CodeSymbol>) -> Result<Vec<String>>;
+
+    async fn update_symbol_embedding(&self, id: &str, embedding: Vec<f32>) -> Result<()>;
+
+    async fn update_chunk_embedding(&self, id: &str, embedding: Vec<f32>) -> Result<()>;
+
+    /// Create a relation between code symbols
+    async fn create_symbol_relation(&self, relation: SymbolRelation) -> Result<String>;
+
+    /// Delete all symbols for a project
+    async fn delete_project_symbols(&self, project_id: &str) -> Result<usize>;
+
+    /// Delete all symbols for a specific file
+    async fn delete_symbols_by_path(&self, project_id: &str, file_path: &str) -> Result<usize>;
+
+    /// Find all symbols that call a given symbol
+    async fn get_symbol_callers(&self, symbol_id: &str) -> Result<Vec<CodeSymbol>>;
+
+    /// Find all symbols called by a given symbol
+    async fn get_symbol_callees(&self, symbol_id: &str) -> Result<Vec<CodeSymbol>>;
+
+    /// Get related symbols via graph traversal
+    async fn get_related_symbols(
+        &self,
+        symbol_id: &str,
+        depth: usize,
+        direction: Direction,
+    ) -> Result<(Vec<CodeSymbol>, Vec<SymbolRelation>)>;
+
+    /// Search symbols by name pattern
+    async fn search_symbols(
+        &self,
+        query: &str,
+        project_id: Option<&str>,
+    ) -> Result<Vec<CodeSymbol>>;
 
     // ─────────────────────────────────────────────────────────────────────────
     // System

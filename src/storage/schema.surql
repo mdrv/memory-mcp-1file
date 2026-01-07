@@ -73,3 +73,21 @@ DEFINE FIELD total_chunks     ON index_status TYPE int DEFAULT 0;
 DEFINE FIELD started_at       ON index_status TYPE datetime;
 DEFINE FIELD completed_at     ON index_status TYPE option<datetime>;
 DEFINE FIELD error_message    ON index_status TYPE option<string>;
+
+-- Code symbols table
+DEFINE TABLE IF NOT EXISTS code_symbols SCHEMAFULL;
+DEFINE FIELD name           ON code_symbols TYPE string;
+DEFINE FIELD symbol_type    ON code_symbols TYPE string;
+DEFINE FIELD file_path      ON code_symbols TYPE string;
+DEFINE FIELD start_line     ON code_symbols TYPE int;
+DEFINE FIELD end_line       ON code_symbols TYPE int;
+DEFINE FIELD project_id     ON code_symbols TYPE string;
+DEFINE FIELD signature      ON code_symbols TYPE option<string>;
+DEFINE FIELD embedding      ON code_symbols TYPE option<array<float>>;
+DEFINE FIELD indexed_at     ON code_symbols TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_symbols_name ON code_symbols FIELDS name;
+DEFINE INDEX IF NOT EXISTS idx_symbols_project ON code_symbols FIELDS project_id;
+DEFINE INDEX IF NOT EXISTS idx_symbols_path ON code_symbols FIELDS file_path;
+DEFINE INDEX IF NOT EXISTS idx_symbols_vec ON code_symbols 
+    FIELDS embedding HNSW DIMENSION 768 DIST COSINE;

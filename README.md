@@ -198,6 +198,9 @@ The server exposes **21 tools** to the AI model.
 |------|-------------|
 | `index_project` | Scan a local folder for code. |
 | `search_code` | Semantic search over code chunks. |
+| `search_symbols` | Search for functions/classes by name. |
+| `get_callers` | Find functions that call a given symbol. |
+| `get_callees` | Find functions called by a given symbol. |
 
 ---
 

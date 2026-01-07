@@ -8,7 +8,7 @@ use rmcp::model::{CallToolResult, Content};
 use serde_json::json;
 
 use crate::embedding::EmbeddingStatus;
-use crate::types::{Entity, Memory};
+use crate::types::{CodeSymbol, Entity, Memory};
 
 // ============================================================================
 // Logic Constants & Helpers
@@ -61,6 +61,12 @@ pub fn strip_embeddings(memories: &mut [Memory]) {
 pub fn strip_entity_embeddings(entities: &mut [Entity]) {
     for e in entities {
         e.embedding.take();
+    }
+}
+
+pub fn strip_symbol_embeddings(symbols: &mut [CodeSymbol]) {
+    for s in symbols.iter_mut() {
+        s.embedding = None;
     }
 }
 

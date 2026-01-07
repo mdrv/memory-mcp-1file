@@ -9,7 +9,10 @@ use crate::types::{IndexState, IndexStatus};
 use crate::Result;
 
 use super::chunker::chunk_file;
+use super::parser::CodeParser;
 use super::scanner::scan_directory;
+
+use crate::embedding::{EmbeddingRequest, EmbeddingTarget};
 
 pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<IndexStatus> {
     let project_id = project_path
@@ -21,21 +24,24 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
     let mut status = IndexStatus::new(project_id.clone());
 
     state.storage.delete_project_chunks(&project_id).await?;
+    state.storage.delete_project_symbols(&project_id).await?;
 
     let files = scan_directory(project_path)?;
     status.total_files = files.len() as u32;
+    state
+        .monitor
+        .total_files
+        .store(status.total_files, std::sync::atomic::Ordering::Relaxed);
+    state
+        .monitor
+        .indexed_files
+        .store(0, std::sync::atomic::Ordering::Relaxed);
 
     state.storage.update_index_status(status.clone()).await?;
 
-    if let Err(e) = state.embedding.wait_for_ready().await {
-        tracing::error!("Skipping indexing because model failed to load: {}", e);
-        status.status = IndexState::Failed;
-        state.storage.update_index_status(status.clone()).await?;
-        return Err(e);
-    }
-
-    let batch_size = 100;
+    let batch_size = 20;
     let mut chunk_buffer = Vec::with_capacity(batch_size);
+    let mut symbol_buffer = Vec::with_capacity(batch_size);
 
     for file_path in &files {
         let content = match fs::read_to_string(file_path).await {
@@ -46,29 +52,112 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
             }
         };
 
+        // 1. Chunking (Vector Search)
         let chunks = chunk_file(file_path, &content, &project_id);
-
-        for mut chunk in chunks {
-            if let Ok(emb) = state.embedding.embed(&chunk.content).await {
-                chunk.embedding = Some(emb);
-            }
-
+        for chunk in chunks {
             chunk_buffer.push(chunk);
             status.total_chunks += 1;
 
             if chunk_buffer.len() >= batch_size {
-                state
-                    .storage
-                    .create_code_chunks_batch(std::mem::take(&mut chunk_buffer))
-                    .await?;
+                let batch = std::mem::take(&mut chunk_buffer);
+                if let Ok(ids) = state.storage.create_code_chunks_batch(batch.clone()).await {
+                    for (id, chunk) in ids.iter().zip(batch.iter()) {
+                        let _ = state
+                            .embedding_queue
+                            .send(EmbeddingRequest {
+                                text: chunk.content.clone(),
+                                responder: None,
+                                target: Some(EmbeddingTarget::Chunk(id.clone())),
+                            })
+                            .await;
+                    }
+                }
+            }
+        }
+
+        // 2. Parsing (Code Graph)
+        let (symbols, _references) = CodeParser::parse_file(file_path, &content, &project_id);
+
+        if !symbols.is_empty() {
+            tracing::debug!("File {:?}: found {} symbols", file_path, symbols.len());
+        }
+
+        for symbol in symbols {
+            symbol_buffer.push(symbol);
+            status.total_symbols += 1;
+
+            if symbol_buffer.len() >= batch_size {
+                let batch = std::mem::take(&mut symbol_buffer);
+                // 1. Insert batch to get IDs
+                if let Ok(ids) = state.storage.create_code_symbols_batch(batch.clone()).await {
+                    // 2. Queue for async embedding
+                    for (id, sym) in ids.iter().zip(batch.iter()) {
+                        if let Some(sig) = &sym.signature {
+                            let _ = state
+                                .embedding_queue
+                                .send(EmbeddingRequest {
+                                    text: sig.clone(),
+                                    responder: None,
+                                    target: Some(EmbeddingTarget::Symbol(id.clone())),
+                                })
+                                .await;
+                        }
+                    }
+                }
             }
         }
 
         status.indexed_files += 1;
+        state
+            .monitor
+            .indexed_files
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        if status.indexed_files % 10 == 0 {
+            if let Err(e) = state.storage.update_index_status(status.clone()).await {
+                tracing::warn!("Failed to update intermediate status: {}", e);
+            }
+        }
     }
 
     if !chunk_buffer.is_empty() {
-        state.storage.create_code_chunks_batch(chunk_buffer).await?;
+        if let Ok(ids) = state
+            .storage
+            .create_code_chunks_batch(chunk_buffer.clone())
+            .await
+        {
+            for (id, chunk) in ids.iter().zip(chunk_buffer.iter()) {
+                let _ = state
+                    .embedding_queue
+                    .send(EmbeddingRequest {
+                        text: chunk.content.clone(),
+                        responder: None,
+                        target: Some(EmbeddingTarget::Chunk(id.clone())),
+                    })
+                    .await;
+            }
+        }
+    }
+
+    if !symbol_buffer.is_empty() {
+        let batch = symbol_buffer;
+        let ids = state
+            .storage
+            .create_code_symbols_batch(batch.clone())
+            .await?;
+
+        for (id, sym) in ids.iter().zip(batch.iter()) {
+            if let Some(sig) = &sym.signature {
+                let _ = state
+                    .embedding_queue
+                    .send(EmbeddingRequest {
+                        text: sig.clone(),
+                        responder: None,
+                        target: Some(EmbeddingTarget::Symbol(id.clone())),
+                    })
+                    .await;
+            }
+        }
     }
 
     status.status = IndexState::Completed;
@@ -106,6 +195,11 @@ pub async fn incremental_index(
                     tracing::warn!(path = %path_str, error = %e, "Failed to delete chunks");
                 }
             }
+            // Also delete symbols
+            let _ = state
+                .storage
+                .delete_symbols_by_path(project_id, &path_str)
+                .await;
             continue;
         }
 
@@ -135,7 +229,12 @@ pub async fn incremental_index(
             .storage
             .delete_chunks_by_path(project_id, &path_str)
             .await;
+        let _ = state
+            .storage
+            .delete_symbols_by_path(project_id, &path_str)
+            .await;
 
+        // 1. Chunks
         let chunks = super::chunker::chunk_file(&path, &content, project_id);
 
         if let Err(e) = state.embedding.wait_for_ready().await {
@@ -154,6 +253,35 @@ pub async fn incremental_index(
 
             if let Err(e) = state.storage.create_code_chunk(chunk).await {
                 tracing::warn!(path = %path_str, error = %e, "Failed to create chunk");
+            }
+        }
+
+        // 2. Symbols
+        let (symbols, _) = CodeParser::parse_file(&path, &content, project_id);
+        if !symbols.is_empty() {
+            let created_ids = match state
+                .storage
+                .create_code_symbols_batch(symbols.clone())
+                .await
+            {
+                Ok(ids) => ids,
+                Err(e) => {
+                    tracing::warn!(path = %path_str, error = %e, "Failed to create symbols");
+                    vec![]
+                }
+            };
+
+            for (id, sym) in created_ids.iter().zip(symbols.iter()) {
+                if let Some(sig) = &sym.signature {
+                    let _ = state
+                        .embedding_queue
+                        .send(EmbeddingRequest {
+                            text: sig.clone(),
+                            responder: None,
+                            target: Some(EmbeddingTarget::Symbol(id.clone())),
+                        })
+                        .await;
+                }
             }
         }
 
@@ -179,6 +307,10 @@ mod tests {
             let file_path = project_dir.join(format!("file_{}.rs", i));
             fs::write(file_path, format!("fn test_{}() {{}}", i)).unwrap();
         }
+
+        // Must run with a real queue/worker setup or mock state
+        // For unit test, we can just use the ctx.state which has a dummy queue if we updated TestContext
+        // But TestContext::new() needs to be updated to initialize embedding_queue.
 
         let status = index_project(ctx.state.clone(), &project_dir)
             .await

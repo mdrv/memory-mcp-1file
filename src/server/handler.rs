@@ -200,7 +200,7 @@ impl MemoryMcpServer {
     }
 
     #[tool(
-        description = "Index a project directory for code search. Returns status if already indexed. Use delete_project to re-index."
+        description = "Index a project directory for code search. Returns status if already indexed. Use delete_project to re-index. TIP: Use path='/project' for Docker environments."
     )]
     async fn index_project(
         &self,
@@ -230,9 +230,17 @@ impl MemoryMcpServer {
         &self,
         params: Parameters<GetIndexStatusParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        logic::code::get_index_status(&self.state, params.0)
+        let status = logic::code::get_index_status(&self.state, params.0)
             .await
-            .map_err(to_rpc_error)
+            .map_err(to_rpc_error)?;
+
+        // Mix in real-time monitor stats if available and matching project
+        // Note: logic::code::get_index_status returns CallToolResult (JSON), not IndexStatus struct directly.
+        // We need to parse the JSON content to modify it, or modify logic::code::get_index_status instead.
+        // Modifying the logic layer is cleaner.
+        // Let's modify src/server/logic/code.rs instead of handler.rs for this logic.
+
+        Ok(status)
     }
 
     #[tool(
@@ -253,6 +261,46 @@ impl MemoryMcpServer {
         params: Parameters<DeleteProjectParams>,
     ) -> Result<CallToolResult, ErrorData> {
         logic::code::delete_project(&self.state, params.0)
+            .await
+            .map_err(to_rpc_error)
+    }
+
+    #[tool(description = "Search for code symbols (functions, classes) by name.")]
+    async fn search_symbols(
+        &self,
+        params: Parameters<SearchSymbolsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        logic::code::search_symbols(&self.state, params.0)
+            .await
+            .map_err(to_rpc_error)
+    }
+
+    #[tool(description = "Find all symbols that call a given symbol.")]
+    async fn get_callers(
+        &self,
+        params: Parameters<GetCallersParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        logic::code::get_callers(&self.state, params.0)
+            .await
+            .map_err(to_rpc_error)
+    }
+
+    #[tool(description = "Find all symbols called by a given symbol.")]
+    async fn get_callees(
+        &self,
+        params: Parameters<GetCalleesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        logic::code::get_callees(&self.state, params.0)
+            .await
+            .map_err(to_rpc_error)
+    }
+
+    #[tool(description = "Get related symbols (functions, classes) via graph traversal.")]
+    async fn get_related_symbols(
+        &self,
+        params: Parameters<GetRelatedSymbolsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        logic::code::get_related_symbols(&self.state, params.0)
             .await
             .map_err(to_rpc_error)
     }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tempfile::TempDir;
 
 use crate::config::{AppConfig, AppState};
-use crate::embedding::{EmbeddingConfig, EmbeddingService, ModelType};
+use crate::embedding::{EmbeddingConfig, EmbeddingService, EmbeddingStore, ModelType};
 use crate::storage::SurrealStorage;
 
 pub struct TestContext {
@@ -41,6 +41,10 @@ impl TestContext {
             attempts += 1;
         }
 
+        let embedding_store =
+            Arc::new(EmbeddingStore::new(db_path).expect("Failed to init embedding store"));
+        let (queue_tx, _queue_rx) = tokio::sync::mpsc::channel(1000);
+
         let config = AppConfig {
             data_dir: db_path.to_path_buf(),
             model: "mock".to_string(),
@@ -54,6 +58,8 @@ impl TestContext {
             config,
             storage,
             embedding,
+            embedding_store,
+            embedding_queue: queue_tx,
         });
 
         Self {

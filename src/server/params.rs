@@ -164,3 +164,29 @@ pub struct DetectCommunitiesParams {
     #[serde(skip)]
     pub _placeholder: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SearchSymbolsParams {
+    pub query: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GetCallersParams {
+    pub symbol_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GetCalleesParams {
+    pub symbol_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GetRelatedSymbolsParams {
+    pub symbol_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+}

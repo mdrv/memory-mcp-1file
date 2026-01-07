@@ -5,12 +5,14 @@ use serde_json::json;
 
 use crate::config::AppState;
 use crate::server::params::{
-    DeleteProjectParams, GetIndexStatusParams, IndexProjectParams, ListProjectsParams,
-    SearchCodeParams,
+    DeleteProjectParams, GetCalleesParams, GetCallersParams, GetIndexStatusParams,
+    IndexProjectParams, ListProjectsParams, SearchCodeParams, SearchSymbolsParams,
 };
 use crate::storage::StorageBackend;
 
-use super::{error_response, normalize_limit, success_json, success_serialize};
+use super::{
+    error_response, normalize_limit, strip_symbol_embeddings, success_json, success_serialize,
+};
 
 pub async fn index_project(
     state: &Arc<AppState>,
@@ -46,15 +48,7 @@ pub async fn index_project(
                 })));
             }
             crate::types::IndexState::Completed => {
-                // Already completed - return status
-                return Ok(success_json(json!({
-                    "project_id": project_id,
-                    "status": "completed",
-                    "total_files": status.total_files,
-                    "indexed_files": status.indexed_files,
-                    "total_chunks": status.total_chunks,
-                    "message": "Already indexed. Use delete_project first to re-index."
-                })));
+                tracing::info!(project_id = %project_id, "Re-indexing project (was completed)");
             }
             _ => {}
         }
@@ -132,7 +126,26 @@ pub async fn get_index_status(
     params: GetIndexStatusParams,
 ) -> anyhow::Result<CallToolResult> {
     match state.storage.get_index_status(&params.project_id).await {
-        Ok(Some(status)) => Ok(success_serialize(&status)),
+        Ok(Some(mut status)) => {
+            if status.status == crate::types::IndexState::Indexing {
+                let indexed = state
+                    .monitor
+                    .indexed_files
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                let total = state
+                    .monitor
+                    .total_files
+                    .load(std::sync::atomic::Ordering::Relaxed);
+
+                if indexed > 0 {
+                    status.indexed_files = std::cmp::max(status.indexed_files, indexed);
+                }
+                if total > 0 {
+                    status.total_files = std::cmp::max(status.total_files, total);
+                }
+            }
+            Ok(success_serialize(&status))
+        }
         Ok(None) => Ok(error_response(format!(
             "Project not found: {}",
             params.project_id
@@ -158,6 +171,13 @@ pub async fn delete_project(
     state: &Arc<AppState>,
     params: DeleteProjectParams,
 ) -> anyhow::Result<CallToolResult> {
+    let _ = state
+        .storage
+        .delete_project_symbols(&params.project_id)
+        .await;
+
+    let _ = state.storage.delete_index_status(&params.project_id).await;
+
     match state
         .storage
         .delete_project_chunks(&params.project_id)
@@ -167,6 +187,100 @@ pub async fn delete_project(
             "deleted_chunks": deleted,
             "project_id": params.project_id
         }))),
+        Err(e) => Ok(error_response(e)),
+    }
+}
+
+pub async fn search_symbols(
+    state: &Arc<AppState>,
+    params: SearchSymbolsParams,
+) -> anyhow::Result<CallToolResult> {
+    match state
+        .storage
+        .search_symbols(&params.query, params.project_id.as_deref())
+        .await
+    {
+        Ok(mut symbols) => {
+            let count_before = symbols.len();
+            strip_symbol_embeddings(&mut symbols);
+
+            if let Some(first) = symbols.first() {
+                if first.embedding.is_some() {
+                    tracing::error!("Failed to strip embedding for symbol {}", first.name);
+                }
+            }
+
+            Ok(success_json(json!({
+                "results": symbols,
+                "count": count_before,
+                "query": params.query
+            })))
+        }
+        Err(e) => Ok(error_response(e)),
+    }
+}
+
+pub async fn get_callers(
+    state: &Arc<AppState>,
+    params: GetCallersParams,
+) -> anyhow::Result<CallToolResult> {
+    match state.storage.get_symbol_callers(&params.symbol_id).await {
+        Ok(mut callers) => {
+            strip_symbol_embeddings(&mut callers);
+            Ok(success_json(json!({
+                "results": callers,
+                "count": callers.len(),
+                "symbol_id": params.symbol_id
+            })))
+        }
+        Err(e) => Ok(error_response(e)),
+    }
+}
+
+pub async fn get_callees(
+    state: &Arc<AppState>,
+    params: GetCalleesParams,
+) -> anyhow::Result<CallToolResult> {
+    match state.storage.get_symbol_callees(&params.symbol_id).await {
+        Ok(mut callees) => {
+            strip_symbol_embeddings(&mut callees);
+            Ok(success_json(json!({
+                "results": callees,
+                "count": callees.len(),
+                "symbol_id": params.symbol_id
+            })))
+        }
+        Err(e) => Ok(error_response(e)),
+    }
+}
+
+pub async fn get_related_symbols(
+    state: &Arc<AppState>,
+    params: crate::server::params::GetRelatedSymbolsParams,
+) -> anyhow::Result<CallToolResult> {
+    use crate::types::Direction;
+
+    let depth = params.depth.unwrap_or(1).min(3);
+    let direction: Direction = params
+        .direction
+        .as_ref()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_default();
+
+    match state
+        .storage
+        .get_related_symbols(&params.symbol_id, depth, direction)
+        .await
+    {
+        Ok((mut symbols, relations)) => {
+            strip_symbol_embeddings(&mut symbols);
+            Ok(success_json(json!({
+                "symbols": symbols,
+                "relations": relations,
+                "symbol_count": symbols.len(),
+                "relation_count": relations.len()
+            })))
+        }
         Err(e) => Ok(error_response(e)),
     }
 }

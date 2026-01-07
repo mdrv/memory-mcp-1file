@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use memory_mcp::codebase::CodebaseManager;
 use memory_mcp::config::{AppConfig, AppState};
-use memory_mcp::embedding::{EmbeddingConfig, EmbeddingService, ModelType};
+use memory_mcp::embedding::{
+    EmbeddingConfig, EmbeddingService, EmbeddingStore, EmbeddingWorker, ModelType,
+};
 use memory_mcp::server::MemoryMcpServer;
 use memory_mcp::storage::{StorageBackend, SurrealStorage};
 
@@ -22,7 +23,7 @@ struct Cli {
     #[arg(long, env, default_value = "1000")]
     cache_size: usize,
 
-    #[arg(long, env, default_value = "32")]
+    #[arg(long, env, default_value = "8")]
     batch_size: usize,
 
     #[arg(long, env = "TIMEOUT_MS", default_value = "30000")]
@@ -76,6 +77,9 @@ async fn main() -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
+    // Initialize Embedding Store (L1/L2 Cache)
+    let embedding_store = Arc::new(EmbeddingStore::new(&cli.data_dir)?);
+
     let embedding_config = EmbeddingConfig {
         model,
         cache_size: cli.cache_size,
@@ -84,6 +88,8 @@ async fn main() -> anyhow::Result<()> {
     };
     let embedding = Arc::new(EmbeddingService::new(embedding_config));
     embedding.start_loading();
+
+    let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(1000);
 
     let state = Arc::new(AppState {
         config: AppConfig {
@@ -94,29 +100,24 @@ async fn main() -> anyhow::Result<()> {
             timeout_ms: cli.timeout,
             log_level: cli.log_level,
         },
-        storage,
-        embedding,
+        storage: storage.clone(),
+        embedding: embedding.clone(),
+        embedding_store: embedding_store.clone(),
+        embedding_queue: queue_tx,
+        monitor: Arc::new(memory_mcp::config::IndexMonitor::default()),
     });
 
-    // Auto-start codebase manager if /project exists
-    let project_path = std::path::Path::new("/project");
-    if project_path.exists() && project_path.is_dir() {
-        let codebase_manager = CodebaseManager::new(state.clone(), project_path.to_path_buf());
-
-        // Start in background - don't block server startup
-        tokio::spawn(async move {
-            if let Err(e) = codebase_manager.start().await {
-                tracing::warn!("Codebase manager failed to start: {}", e);
-            }
-            // Keep manager alive for the duration of the server
-            // It will be dropped when server shuts down
-            std::future::pending::<()>().await;
-        });
-
-        tracing::info!("Codebase auto-indexing enabled for /project");
-    }
+    let worker = EmbeddingWorker::new(
+        queue_rx,
+        embedding.get_engine(),
+        embedding_store.clone(),
+        state.clone(),
+    );
+    tokio::spawn(worker.run());
 
     let server = MemoryMcpServer::new(state.clone());
+
+    // Auto-start codebase manager if /project exists
     let transport = rmcp::transport::io::stdio();
 
     let service = rmcp::service::serve_server(server, transport).await?;

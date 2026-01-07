@@ -8,8 +8,8 @@ use surrealdb::Surreal;
 
 use super::StorageBackend;
 use crate::types::{
-    CodeChunk, Direction, Entity, IndexStatus, Memory, MemoryUpdate, Relation, ScoredCodeChunk,
-    SearchResult,
+    CodeChunk, CodeSymbol, Direction, Entity, IndexStatus, Memory, MemoryUpdate, Relation,
+    ScoredCodeChunk, SearchResult, SymbolRelation,
 };
 use crate::Result;
 
@@ -475,13 +475,12 @@ impl StorageBackend for SurrealStorage {
         Ok(id)
     }
 
-    async fn create_code_chunks_batch(&self, mut chunks: Vec<CodeChunk>) -> Result<usize> {
+    async fn create_code_chunks_batch(&self, mut chunks: Vec<CodeChunk>) -> Result<Vec<String>> {
         let count = chunks.len();
         if count == 0 {
-            return Ok(0);
+            return Ok(vec![]);
         }
 
-        // Assign IDs before insertion to ensure they are set
         for chunk in &mut chunks {
             if chunk.id.is_none() {
                 let id = generate_id();
@@ -489,9 +488,14 @@ impl StorageBackend for SurrealStorage {
             }
         }
 
-        // Use bulk insert for performance
-        let _: Vec<CodeChunk> = self.db.insert("code_chunks").content(chunks).await?;
-        Ok(count)
+        let created: Vec<CodeChunk> = self.db.insert("code_chunks").content(chunks).await?;
+
+        let ids = created
+            .into_iter()
+            .filter_map(|c| c.id.map(|t| t.to_string()))
+            .collect();
+
+        Ok(ids)
     }
 
     async fn delete_project_chunks(&self, project_id: &str) -> Result<usize> {
@@ -546,30 +550,16 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn update_index_status(&self, status: IndexStatus) -> Result<()> {
-        let sql = r#"
-            UPSERT index_status SET
-                project_id = $project_id,
-                status = $status,
-                total_files = $total_files,
-                indexed_files = $indexed_files,
-                total_chunks = $total_chunks,
-                started_at = $started_at,
-                completed_at = $completed_at,
-                error_message = $error_message
-            WHERE project_id = $project_id
-        "#;
-        let project_id = status.project_id.clone();
-        let status_str = status.status.to_string();
+        let id = ("index_status", &status.project_id);
+        let _: Option<IndexStatus> = self.db.update(id).content(status).await?;
+        Ok(())
+    }
+
+    async fn delete_index_status(&self, project_id: &str) -> Result<()> {
+        let sql = "DELETE FROM index_status WHERE project_id = $project_id";
         self.db
             .query(sql)
-            .bind(("project_id", project_id))
-            .bind(("status", status_str))
-            .bind(("total_files", status.total_files))
-            .bind(("indexed_files", status.indexed_files))
-            .bind(("total_chunks", status.total_chunks))
-            .bind(("started_at", status.started_at))
-            .bind(("completed_at", status.completed_at))
-            .bind(("error_message", status.error_message))
+            .bind(("project_id", project_id.to_string()))
             .await?;
         Ok(())
     }
@@ -589,6 +579,217 @@ impl StorageBackend for SurrealStorage {
         Ok(projects)
     }
 
+    async fn create_code_symbol(&self, mut symbol: CodeSymbol) -> Result<String> {
+        let id = ("code_symbols", &symbol.unique_key());
+        symbol.id = None;
+        let _: Option<CodeSymbol> = self.db.create(id).content(symbol).await?;
+        Ok(format!("code_symbols:{}", id.1))
+    }
+
+    async fn create_code_symbols_batch(&self, symbols: Vec<CodeSymbol>) -> Result<Vec<String>> {
+        if symbols.is_empty() {
+            return Ok(vec![]);
+        }
+        let created: Vec<CodeSymbol> = self.db.insert("code_symbols").content(symbols).await?;
+
+        let ids = created
+            .into_iter()
+            .filter_map(|s| s.id.map(|t| t.to_string()))
+            .collect();
+
+        Ok(ids)
+    }
+
+    async fn update_symbol_embedding(&self, id: &str, embedding: Vec<f32>) -> Result<()> {
+        let sql = "UPDATE code_symbols SET embedding = $embedding WHERE id = $id";
+        let _ = self
+            .db
+            .query(sql)
+            .bind(("embedding", embedding))
+            .bind(("id", id.to_string()))
+            .await?;
+        Ok(())
+    }
+
+    async fn update_chunk_embedding(&self, id: &str, embedding: Vec<f32>) -> Result<()> {
+        let sql = "UPDATE code_chunks SET embedding = $embedding WHERE id = $id";
+        let _ = self
+            .db
+            .query(sql)
+            .bind(("embedding", embedding))
+            .bind(("id", id.to_string()))
+            .await?;
+        Ok(())
+    }
+
+    async fn create_symbol_relation(&self, relation: SymbolRelation) -> Result<String> {
+        let sql = "RELATE $from->symbol_relation->$to CONTENT $content";
+        let from = relation.from_symbol.clone();
+        let to = relation.to_symbol.clone();
+
+        let _ = self
+            .db
+            .query(sql)
+            .bind(("from", from))
+            .bind(("to", to))
+            .bind(("content", relation))
+            .await?;
+        Ok("relation_created".to_string())
+    }
+
+    async fn delete_project_symbols(&self, project_id: &str) -> Result<usize> {
+        let sql = "DELETE code_symbols WHERE project_id = $project_id";
+        let _ = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .await?;
+        Ok(0)
+    }
+
+    async fn delete_symbols_by_path(&self, project_id: &str, file_path: &str) -> Result<usize> {
+        let sql = "DELETE code_symbols WHERE project_id = $project_id AND file_path = $file_path";
+        let _ = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .bind(("file_path", file_path.to_string()))
+            .await?;
+        Ok(0)
+    }
+
+    async fn get_symbol_callers(&self, symbol_id: &str) -> Result<Vec<CodeSymbol>> {
+        // Query to get Incoming edges (calls) -> From Node
+        let sql = r#"
+            SELECT * FROM code_symbols 
+            WHERE id IN (
+                SELECT VALUE in FROM symbol_relation 
+                WHERE out = type::thing($id) AND relation_type = 'calls'
+            )
+        "#;
+
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("id", symbol_id.to_string()))
+            .await?;
+
+        let symbols: Vec<CodeSymbol> = response.take(0)?;
+        Ok(symbols)
+    }
+
+    async fn get_symbol_callees(&self, symbol_id: &str) -> Result<Vec<CodeSymbol>> {
+        let sql = "SELECT * FROM (SELECT ->symbol_relation[WHERE relation_type = 'calls'].out as callees FROM type::thing($id)).callees";
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("id", symbol_id.to_string()))
+            .await?;
+        let result: Option<Vec<CodeSymbol>> = response.take(0)?;
+        Ok(result.unwrap_or_default())
+    }
+
+    async fn get_related_symbols(
+        &self,
+        symbol_id: &str,
+        depth: usize,
+        direction: Direction,
+    ) -> Result<(Vec<CodeSymbol>, Vec<SymbolRelation>)> {
+        let _depth = depth.clamp(1, 3);
+        // Ensure symbol_id is in correct format "code_symbols:..."
+        let symbol_thing = if !symbol_id.contains(':') {
+            format!("code_symbols:{}", symbol_id)
+        } else {
+            symbol_id.to_string()
+        };
+
+        let sql = match direction {
+            Direction::Outgoing => {
+                "SELECT * FROM symbol_relation WHERE `in` = type::thing($id)"
+            }
+            Direction::Incoming => {
+                "SELECT * FROM symbol_relation WHERE `out` = type::thing($id)"
+            }
+            Direction::Both => {
+                "SELECT * FROM symbol_relation WHERE `in` = type::thing($id) OR `out` = type::thing($id)"
+            }
+        };
+
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("id", symbol_thing.clone()))
+            .await?;
+
+        let relations: Vec<SymbolRelation> = response.take(0).unwrap_or_default();
+
+        let mut symbol_ids: Vec<String> = vec![];
+        for rel in &relations {
+            match direction {
+                Direction::Outgoing => {
+                    symbol_ids.push(rel.to_symbol.to_string());
+                }
+                Direction::Incoming => {
+                    symbol_ids.push(rel.from_symbol.to_string());
+                }
+                Direction::Both => {
+                    let from_str = rel.from_symbol.to_string();
+                    let to_str = rel.to_symbol.to_string();
+
+                    if from_str != symbol_thing {
+                        symbol_ids.push(from_str);
+                    }
+                    if to_str != symbol_thing {
+                        symbol_ids.push(to_str);
+                    }
+                }
+            }
+        }
+
+        // Fetch symbols by ID
+        // Note: SurrealDB thing IDs in relation are strings like "code_symbols:id"
+        // We can fetch them directly.
+        let mut symbols: Vec<CodeSymbol> = vec![];
+        for sid in symbol_ids {
+            // Need to parse ID part if it's "table:id" format
+            let id_part = if let Some(idx) = sid.find(':') {
+                &sid[idx + 1..]
+            } else {
+                &sid
+            };
+
+            // Re-using a get_symbol logic would be better, but we don't have get_symbol_by_id yet.
+            // Let's do a direct select
+            let s: Option<CodeSymbol> = self.db.select(("code_symbols", id_part)).await?;
+            if let Some(sym) = s {
+                symbols.push(sym);
+            }
+        }
+
+        Ok((symbols, relations))
+    }
+
+    async fn search_symbols(
+        &self,
+        query: &str,
+        project_id: Option<&str>,
+    ) -> Result<Vec<CodeSymbol>> {
+        let mut sql = "SELECT * FROM code_symbols WHERE name ~ $query".to_string();
+        if let Some(_) = project_id {
+            sql.push_str(" AND project_id = $project_id");
+        }
+        sql.push_str(" LIMIT 20");
+
+        let mut query_builder = self.db.query(sql).bind(("query", query.to_string()));
+        if let Some(pid) = project_id {
+            query_builder = query_builder.bind(("project_id", pid.to_string()));
+        }
+
+        let mut response = query_builder.await?;
+        let symbols: Vec<CodeSymbol> = response.take(0)?;
+        Ok(symbols)
+    }
+
     async fn health_check(&self) -> Result<bool> {
         self.db.query("INFO FOR DB").await?;
         Ok(true)
@@ -603,6 +804,8 @@ impl StorageBackend for SurrealStorage {
             DELETE entities;
             DELETE relations;
             DELETE code_chunks;
+            DELETE code_symbols;
+            DELETE symbol_relation;
             DELETE index_status;
             COMMIT TRANSACTION;
             "#,
@@ -773,6 +976,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_symbol_call_hierarchy() {
+        let (storage, _tmp) = setup_test_db().await;
+        use crate::types::{CodeRelationType, CodeSymbol, SymbolRelation, SymbolType};
+
+        // 1. Create Symbols: Caller -> Callee
+        let caller = CodeSymbol::new(
+            "main".to_string(),
+            SymbolType::Function,
+            "main.rs".to_string(),
+            1,
+            5,
+            "test_project".to_string(),
+        );
+        let caller_id = storage.create_code_symbol(caller).await.unwrap();
+
+        let callee = CodeSymbol::new(
+            "helper".to_string(),
+            SymbolType::Function,
+            "helper.rs".to_string(),
+            10,
+            15,
+            "test_project".to_string(),
+        );
+        let callee_id = storage.create_code_symbol(callee).await.unwrap();
+
+        // 2. Create Relation: main calls helper
+        let relation = SymbolRelation::new(
+            surrealdb::sql::Thing::from((
+                "code_symbols".to_string(),
+                caller_id.split(':').nth(1).unwrap().to_string(),
+            )),
+            surrealdb::sql::Thing::from((
+                "code_symbols".to_string(),
+                callee_id.split(':').nth(1).unwrap().to_string(),
+            )),
+            CodeRelationType::Calls,
+            "main.rs".to_string(),
+            3,
+        );
+        storage.create_symbol_relation(relation).await.unwrap();
+
+        // 3. Test get_symbol_callees (Outgoing)
+        // main -> ? (should be helper)
+        let callees = storage.get_symbol_callees(&caller_id).await.unwrap();
+        assert_eq!(callees.len(), 1, "Should find 1 callee");
+        assert_eq!(callees[0].name, "helper");
+
+        // 4. Test get_symbol_callers (Incoming)
+        // ? -> helper (should be main)
+        let callers = storage.get_symbol_callers(&callee_id).await.unwrap();
+        assert_eq!(callers.len(), 1, "Should find 1 caller");
+        assert_eq!(callers[0].name, "main");
+    }
+
+    #[tokio::test]
     async fn test_temporal_validation() {
         let (storage, _tmp) = setup_test_db().await;
 
@@ -861,7 +1119,6 @@ mod tests {
         assert_eq!(count, 50);
 
         let _status = storage.get_index_status("test_project").await.unwrap();
-        // Note: create_code_chunks_batch doesn't update index_status table automatically,
         // that's handled by the indexer. But we can verify chunks exist.
 
         let results = storage
