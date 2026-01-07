@@ -1,7 +1,7 @@
 FROM alpine:3.23
 
 ARG VERSION=0.1.0
-ARG REPO=unnamed/memory-mcp
+ARG REPO=pomazanbohdan/memory-mcp-1file
 ARG TARGETARCH=amd64
 
 # Install runtime dependencies (minimal)
@@ -20,8 +20,11 @@ RUN wget -q -O memory-mcp.tar.gz \
     && chmod +x /usr/local/bin/memory-mcp
 
 # Data directory setup
-RUN mkdir -p /data
+RUN mkdir -p /data /project
 ENV DATA_DIR=/data
 ENV LOG_LEVEL=info
+
+# Persist data and allow project mounting
+VOLUME ["/data", "/project"]
 
 CMD ["memory-mcp", "--data-dir", "/data"]
