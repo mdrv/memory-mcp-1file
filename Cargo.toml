@@ -7,7 +7,10 @@ license = "MIT"
 
 [dependencies]
 # Database
-surrealdb = { version = "2", default-features = false, features = ["kv-surrealkv", "rustls"] }
+surrealdb = { version = "2", default-features = false, features = [
+    "kv-surrealkv",
+    "rustls",
+] }
 
 # Embeddings
 candle-core = "0.9.1"
@@ -17,7 +20,12 @@ tokenizers = "0.22.2"
 hf-hub = { version = "0.4", default-features = false, features = ["ureq"] }
 
 # MCP Protocol
-rmcp = { version = "0.12.0", features = ["server", "client", "transport-io", "macros"] }
+rmcp = { version = "0.12.0", features = [
+    "server",
+    "client",
+    "transport-io",
+    "macros",
+] }
 schemars = "1"
 
 # Graph
@@ -59,15 +67,18 @@ sha2 = "0.10.9"
 tempfile = "3"
 filetime = "0.2"
 
-[profile.dev]
-opt-level = 0
-debug = 0
-split-debuginfo = "unpacked"
-strip = "debuginfo"
 
 [profile.release]
 opt-level = 3
-lto = true           # "Fat" LTO: slower build, better optimization than "thin"
-codegen-units = 1    # Max optimization context (no parallel codegen)
-panic = "abort"      # Remove panic unwinding logic (smaller binary, faster)
-strip = true         # Strip symbols
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.fast]
+inherits = "release"
+opt-level = 3
+lto = "off"
+codegen-units = 256
+panic = "abort"
+strip = true
