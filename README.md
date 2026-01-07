@@ -3,9 +3,10 @@
 [![Release](https://github.com/pomazanbohdan/memory-mcp-1file/actions/workflows/release.yml/badge.svg)](https://github.com/pomazanbohdan/memory-mcp-1file/actions/workflows/release.yml)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue.svg)](https://github.com/pomazanbohdan/memory-mcp-1file/pkgs/container/memory-mcp-1file)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-d64e25.svg)](https://www.rust-lang.org)
 [![Architecture](https://img.shields.io/badge/Architecture-Single%20Binary-success.svg)](#)
 
-A high-performance **Model Context Protocol (MCP)** server that provides persistent, semantic, and graph-based memory for AI agents.
+A high-performance, **pure Rust** Model Context Protocol (MCP) server that provides persistent, semantic, and graph-based memory for AI agents.
 
 Works perfectly with:
 *   **Claude Desktop**
