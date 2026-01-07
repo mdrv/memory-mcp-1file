@@ -3,10 +3,20 @@
 [![Release](https://github.com/pomazanbohdan/memory-mcp-1file/actions/workflows/release.yml/badge.svg)](https://github.com/pomazanbohdan/memory-mcp-1file/actions/workflows/release.yml)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue.svg)](https://github.com/pomazanbohdan/memory-mcp-1file/pkgs/container/memory-mcp-1file)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Architecture](https://img.shields.io/badge/Architecture-Single%20Binary-success.svg)](#)
 
 A high-performance **Model Context Protocol (MCP)** server that provides persistent, semantic, and graph-based memory for AI agents (Claude, Cursor, etc.).
 
-It goes beyond simple file storage by combining:
+### 🏆 The "All-in-One" Advantage
+
+Unlike other memory solutions that require a complex stack (Python + Vector DB + Graph DB), this project is **a single, self-contained executable**.
+
+*   ✅ **No External Database** (SurrealDB is embedded)
+*   ✅ **No Python Dependencies** (Embedding models run via embedded ONNX runtime)
+*   ✅ **No API Keys Required** (All models run locally on CPU)
+*   ✅ **Zero Setup** (Just run one Docker container or binary)
+
+It combines:
 1.  **Vector Search** (FastEmbed) for semantic similarity.
 2.  **Knowledge Graph** (PetGraph) for entity relationships.
 3.  **Code Indexing** for understanding your codebase.
