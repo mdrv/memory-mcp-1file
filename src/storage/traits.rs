@@ -4,8 +4,8 @@
 //! Implemented by SurrealStorage.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
+use surrealdb::sql::Datetime;
 
 use crate::types::{
     CodeChunk, Direction, Entity, IndexStatus, Memory, MemoryUpdate, Relation, ScoredCodeChunk,
@@ -118,7 +118,7 @@ pub trait StorageBackend: Send + Sync {
     /// Get memories that were valid at a specific point in time
     async fn get_valid_at(
         &self,
-        timestamp: DateTime<Utc>,
+        timestamp: Datetime,
         user_id: Option<&str>,
         limit: usize,
     ) -> Result<Vec<Memory>>;
@@ -144,6 +144,13 @@ pub trait StorageBackend: Send + Sync {
     /// Delete all code chunks for a project, returns count of deleted chunks
     async fn delete_project_chunks(&self, project_id: &str) -> Result<usize>;
 
+    /// Delete all chunks for a specific file path within a project
+    async fn delete_chunks_by_path(&self, project_id: &str, file_path: &str) -> Result<usize>;
+
+    /// Get all chunks for a specific file path within a project  
+    async fn get_chunks_by_path(&self, project_id: &str, file_path: &str)
+        -> Result<Vec<CodeChunk>>;
+
     /// Get indexing status for a project
     async fn get_index_status(&self, project_id: &str) -> Result<Option<IndexStatus>>;
 
@@ -162,4 +169,7 @@ pub trait StorageBackend: Send + Sync {
 
     /// Reset the entire database (delete all data). DANGER.
     async fn reset_db(&self) -> Result<()>;
+
+    /// Gracefully shutdown the database, flushing any pending writes
+    async fn shutdown(&self) -> Result<()>;
 }

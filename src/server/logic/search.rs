@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::CallToolResult;
 use serde_json::json;
 
 use crate::config::AppState;
@@ -12,72 +12,52 @@ use crate::server::params::{RecallParams, SearchParams};
 use crate::storage::StorageBackend;
 use crate::types::{MemoryType, ScoredMemory};
 
-use super::embedding_loading_response;
+use super::{error_response, normalize_limit, success_json};
 
 pub async fn search(state: &Arc<AppState>, params: SearchParams) -> anyhow::Result<CallToolResult> {
-    let status = state.embedding.status().await;
-    if !status.is_ready() {
-        return Ok(embedding_loading_response(&status));
-    }
+    crate::ensure_embedding_ready!(state);
 
     let query_embedding = state.embedding.embed(&params.query).await?;
 
-    let limit = params.limit.unwrap_or(10).min(50);
+    let limit = normalize_limit(params.limit);
     let results = match state.storage.vector_search(&query_embedding, limit).await {
         Ok(r) => r,
-        Err(e) => {
-            return Ok(CallToolResult::success(vec![Content::text(
-                json!({ "error": e.to_string() }).to_string(),
-            )]));
-        }
+        Err(e) => return Ok(error_response(e)),
     };
 
-    Ok(CallToolResult::success(vec![Content::text(
-        json!({
-            "results": results,
-            "count": results.len(),
-            "query": params.query
-        })
-        .to_string(),
-    )]))
+    Ok(success_json(json!({
+        "results": results,
+        "count": results.len(),
+        "query": params.query
+    })))
 }
 
 pub async fn search_text(
     state: &Arc<AppState>,
     params: SearchParams,
 ) -> anyhow::Result<CallToolResult> {
-    let limit = params.limit.unwrap_or(10).min(50);
+    let limit = normalize_limit(params.limit);
     let results = match state.storage.bm25_search(&params.query, limit).await {
         Ok(r) => r,
-        Err(e) => {
-            return Ok(CallToolResult::success(vec![Content::text(
-                json!({ "error": e.to_string() }).to_string(),
-            )]));
-        }
+        Err(e) => return Ok(error_response(e)),
     };
 
-    Ok(CallToolResult::success(vec![Content::text(
-        json!({
-            "results": results,
-            "count": results.len(),
-            "query": params.query
-        })
-        .to_string(),
-    )]))
+    Ok(success_json(json!({
+        "results": results,
+        "count": results.len(),
+        "query": params.query
+    })))
 }
 
 pub async fn recall(state: &Arc<AppState>, params: RecallParams) -> anyhow::Result<CallToolResult> {
     use petgraph::graph::{DiGraph, NodeIndex};
     use std::collections::HashMap;
 
-    let status = state.embedding.status().await;
-    if !status.is_ready() {
-        return Ok(embedding_loading_response(&status));
-    }
+    crate::ensure_embedding_ready!(state);
 
     let query_embedding = state.embedding.embed(&params.query).await?;
 
-    let limit = params.limit.unwrap_or(20).min(100);
+    let limit = normalize_limit(params.limit);
     let fetch_limit = limit * 3;
 
     let vector_weight = params.vector_weight.unwrap_or(DEFAULT_VECTOR_WEIGHT);
@@ -213,19 +193,16 @@ pub async fn recall(state: &Arc<AppState>, params: RecallParams) -> anyhow::Resu
         })
         .collect();
 
-    Ok(CallToolResult::success(vec![Content::text(
-        json!({
-            "memories": scored_memories,
-            "count": scored_memories.len(),
-            "query": params.query,
-            "weights": {
-                "vector": vector_weight,
-                "bm25": bm25_weight,
-                "ppr": ppr_weight
-            }
-        })
-        .to_string(),
-    )]))
+    Ok(success_json(json!({
+        "memories": scored_memories,
+        "count": scored_memories.len(),
+        "query": params.query,
+        "weights": {
+            "vector": vector_weight,
+            "bm25": bm25_weight,
+            "ppr": ppr_weight
+        }
+    })))
 }
 
 #[cfg(test)]

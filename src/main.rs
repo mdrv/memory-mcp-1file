@@ -1,13 +1,13 @@
 use clap::Parser;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
+use memory_mcp::codebase::CodebaseManager;
 use memory_mcp::config::{AppConfig, AppState};
 use memory_mcp::embedding::{EmbeddingConfig, EmbeddingService, ModelType};
 use memory_mcp::server::MemoryMcpServer;
-use memory_mcp::storage::SurrealStorage;
+use memory_mcp::storage::{StorageBackend, SurrealStorage};
 
 #[derive(Parser)]
 #[command(name = "memory-mcp")]
@@ -34,6 +34,10 @@ struct Cli {
     /// Idle timeout in minutes. Server exits if no requests for this duration. 0 = disabled.
     #[arg(long, default_value = "30")]
     idle_timeout: u64,
+
+    /// Reconnect timeout in seconds before shutdown after connection loss.
+    #[arg(long, default_value = "10")]
+    reconnect_timeout: u64,
 
     #[arg(long)]
     list_models: bool,
@@ -94,24 +98,73 @@ async fn main() -> anyhow::Result<()> {
         embedding,
     });
 
+    // Auto-start codebase manager if /project exists
+    let project_path = std::path::Path::new("/project");
+    if project_path.exists() && project_path.is_dir() {
+        let codebase_manager = CodebaseManager::new(state.clone(), project_path.to_path_buf());
+
+        // Start in background - don't block server startup
+        tokio::spawn(async move {
+            if let Err(e) = codebase_manager.start().await {
+                tracing::warn!("Codebase manager failed to start: {}", e);
+            }
+            // Keep manager alive for the duration of the server
+            // It will be dropped when server shuts down
+            std::future::pending::<()>().await;
+        });
+
+        tracing::info!("Codebase auto-indexing enabled for /project");
+    }
+
     let server = MemoryMcpServer::new(state.clone());
     let transport = rmcp::transport::io::stdio();
 
     let service = rmcp::service::serve_server(server, transport).await?;
 
-    tracing::info!("Server started, waiting for signals...");
+    tracing::info!(
+        reconnect_timeout_sec = cli.reconnect_timeout,
+        "Server started, waiting for signals..."
+    );
 
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
+    let reconnect_timeout = Duration::from_secs(cli.reconnect_timeout);
+    let shutdown_reason: &str;
+
     tokio::select! {
         res = service.waiting() => {
-            if let Err(e) = res {
-                tracing::error!("Server error: {}", e);
+            match res {
+                Err(e) => {
+                    tracing::error!("Server error: {}", e);
+                    shutdown_reason = "server_error";
+                }
+                Ok(_) => {
+                    tracing::info!(
+                        timeout_sec = cli.reconnect_timeout,
+                        "Connection closed, waiting for reconnect..."
+                    );
+
+                    let reconnected = tokio::select! {
+                        _ = tokio::time::sleep(reconnect_timeout) => false,
+                        _ = tokio::signal::ctrl_c() => {
+                            tracing::info!("Received SIGINT during reconnect wait");
+                            false
+                        }
+                    };
+
+                    if reconnected {
+                        shutdown_reason = "reconnected";
+                    } else {
+                        tracing::info!("No reconnect within timeout, shutting down");
+                        shutdown_reason = "connection_timeout";
+                    }
+                }
             }
         },
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("Shutting down gracefully... (SIGINT)");
+            shutdown_reason = "sigint";
         },
         _ = async {
             #[cfg(unix)]
@@ -124,11 +177,16 @@ async fn main() -> anyhow::Result<()> {
             }
         } => {
             tracing::info!("Shutting down gracefully... (SIGTERM)");
+            shutdown_reason = "sigterm";
         }
     }
 
-    tracing::info!("Closing database connections...");
-    drop(state);
+    tracing::info!(reason = shutdown_reason, "Initiating graceful shutdown...");
+
+    tracing::info!("Flushing database...");
+    if let Err(e) = state.storage.shutdown().await {
+        tracing::warn!("Database shutdown error: {}", e);
+    }
 
     tracing::info!("Shutdown complete");
     Ok(())

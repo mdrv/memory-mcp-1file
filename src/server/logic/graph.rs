@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::CallToolResult;
 use serde_json::json;
 
 use crate::config::AppState;
@@ -11,7 +11,7 @@ use crate::server::params::{
 use crate::storage::StorageBackend;
 use crate::types::{Direction, Entity, Relation};
 
-use super::strip_entity_embeddings;
+use super::{error_response, strip_entity_embeddings, success_json};
 
 pub async fn create_entity(
     state: &Arc<AppState>,
@@ -28,12 +28,8 @@ pub async fn create_entity(
     };
 
     match state.storage.create_entity(entity).await {
-        Ok(id) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "id": id }).to_string(),
-        )])),
-        Err(e) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": e.to_string() }).to_string(),
-        )])),
+        Ok(id) => Ok(success_json(json!({ "id": id }))),
+        Err(e) => Ok(error_response(e)),
     }
 }
 
@@ -55,12 +51,8 @@ pub async fn create_relation(
     };
 
     match state.storage.create_relation(relation).await {
-        Ok(id) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "id": id }).to_string(),
-        )])),
-        Err(e) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": e.to_string() }).to_string(),
-        )])),
+        Ok(id) => Ok(success_json(json!({ "id": id }))),
+        Err(e) => Ok(error_response(e)),
     }
 }
 
@@ -82,19 +74,14 @@ pub async fn get_related(
     {
         Ok((mut entities, relations)) => {
             strip_entity_embeddings(&mut entities);
-            Ok(CallToolResult::success(vec![Content::text(
-                json!({
-                    "entities": entities,
-                    "relations": relations,
-                    "entity_count": entities.len(),
-                    "relation_count": relations.len()
-                })
-                .to_string(),
-            )]))
+            Ok(success_json(json!({
+                "entities": entities,
+                "relations": relations,
+                "entity_count": entities.len(),
+                "relation_count": relations.len()
+            })))
         }
-        Err(e) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": e.to_string() }).to_string(),
-        )])),
+        Err(e) => Ok(error_response(e)),
     }
 }
 
@@ -107,20 +94,12 @@ pub async fn detect_communities(
 
     let entities = match state.storage.get_all_entities().await {
         Ok(e) => e,
-        Err(e) => {
-            return Ok(CallToolResult::success(vec![Content::text(
-                json!({ "error": e.to_string() }).to_string(),
-            )]));
-        }
+        Err(e) => return Ok(error_response(e)),
     };
 
     let relations = match state.storage.get_all_relations().await {
         Ok(r) => r,
-        Err(r) => {
-            return Ok(CallToolResult::success(vec![Content::text(
-                json!({ "error": r.to_string() }).to_string(),
-            )]));
-        }
+        Err(e) => return Ok(error_response(e)),
     };
 
     let mut graph: DiGraph<String, f32> = DiGraph::new();
@@ -156,14 +135,11 @@ pub async fn detect_communities(
         })
         .collect();
 
-    Ok(CallToolResult::success(vec![Content::text(
-        json!({
-            "communities": result_communities,
-            "community_count": result_communities.len(),
-            "entity_count": entities.len()
-        })
-        .to_string(),
-    )]))
+    Ok(success_json(json!({
+        "communities": result_communities,
+        "community_count": result_communities.len(),
+        "entity_count": entities.len()
+    })))
 }
 
 #[cfg(test)]

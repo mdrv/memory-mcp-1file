@@ -5,6 +5,7 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 
 use super::cache::{CacheStats, EmbeddingCache};
+use super::cleanup::{cleanup_model_cache, CleanupConfig};
 use super::config::{EmbeddingConfig, ModelType};
 use super::engine::EmbeddingEngine;
 use super::{EmbeddingStatus, LoadingPhase};
@@ -74,6 +75,26 @@ impl EmbeddingService {
                 state.phase = LoadingPhase::Starting;
                 drop(state);
             });
+
+            if let Some(ref dir) = cache_dir {
+                rt.block_on(async {
+                    let mut state = load_state.write().await;
+                    state.phase = LoadingPhase::CleaningCache;
+                    drop(state);
+                });
+
+                let cleanup_result = cleanup_model_cache(dir, model, &CleanupConfig::default());
+                if !cleanup_result.is_empty() {
+                    tracing::info!(
+                        "Cache cleanup: {} locks removed, {} incomplete files removed",
+                        cleanup_result.locks_removed,
+                        cleanup_result.incomplete_removed
+                    );
+                }
+                for err in &cleanup_result.errors {
+                    tracing::warn!("Cleanup error: {}", err);
+                }
+            }
 
             tracing::info!("Loading embedding model: {:?}", model);
 
@@ -146,7 +167,11 @@ impl EmbeddingService {
 
         rt.block_on(async {
             let mut state = load_state.write().await;
-            state.phase = LoadingPhase::FetchingWeights;
+            if state.cached {
+                state.phase = LoadingPhase::VerifyingWeights;
+            } else {
+                state.phase = LoadingPhase::FetchingWeights;
+            }
             state.progress_percent = Some(0.0);
         });
 
@@ -237,6 +262,25 @@ impl EmbeddingService {
 
     pub fn is_ready(&self) -> bool {
         self.status.load(Ordering::SeqCst) == STATUS_READY
+    }
+
+    pub async fn wait_for_ready(&self) -> Result<()> {
+        if self.is_ready() {
+            return Ok(());
+        }
+
+        tracing::info!("Waiting for embedding model to load...");
+        loop {
+            match self.status.load(Ordering::SeqCst) {
+                STATUS_READY => return Ok(()),
+                STATUS_ERROR => {
+                    let state = self.load_state.read().await;
+                    let msg = state.error_message.clone().unwrap_or_default();
+                    return Err(AppError::Embedding(format!("Model load failed: {}", msg)));
+                }
+                _ => tokio::time::sleep(std::time::Duration::from_millis(500)).await,
+            }
+        }
     }
 
     pub fn model(&self) -> ModelType {

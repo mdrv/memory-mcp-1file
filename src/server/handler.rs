@@ -188,7 +188,7 @@ impl MemoryMcpServer {
     }
 
     #[tool(
-        description = "Get server status and statistics. Returns version, memory count, and health info."
+        description = "Get server status and statistics. During startup, returns detailed loading progress (fetching, verifying, loading model)."
     )]
     async fn get_status(
         &self,
@@ -199,7 +199,9 @@ impl MemoryMcpServer {
             .map_err(to_rpc_error)
     }
 
-    #[tool(description = "Index a project directory for code search. Returns indexing status.")]
+    #[tool(
+        description = "Index a project directory for code search. Returns status if already indexed. Use delete_project to re-index."
+    )]
     async fn index_project(
         &self,
         params: Parameters<IndexProjectParams>,
@@ -210,7 +212,7 @@ impl MemoryMcpServer {
     }
 
     #[tool(
-        description = "Search indexed code using semantic similarity. Returns matching code chunks."
+        description = "Search indexed code using semantic similarity. Requires project to be fully indexed. Returns matching code chunks."
     )]
     async fn search_code(
         &self,
@@ -221,7 +223,9 @@ impl MemoryMcpServer {
             .map_err(to_rpc_error)
     }
 
-    #[tool(description = "Get indexing status for a project.")]
+    #[tool(
+        description = "Get indexing status for a project. Statuses: indexing, completed, failed."
+    )]
     async fn get_index_status(
         &self,
         params: Parameters<GetIndexStatusParams>,
@@ -231,7 +235,9 @@ impl MemoryMcpServer {
             .map_err(to_rpc_error)
     }
 
-    #[tool(description = "List all indexed projects.")]
+    #[tool(
+        description = "List all indexed projects. Projects are persistent and loaded on startup. Check this first."
+    )]
     async fn list_projects(
         &self,
         params: Parameters<ListProjectsParams>,

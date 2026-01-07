@@ -1,18 +1,18 @@
-FROM debian:testing-slim
+FROM debian:bookworm-slim
 
 # Install minimal runtime deps
-# openssl pulls in the correct libssl version (likely libssl3t64)
+# We need CA certificates for HTTPS requests (e.g. to OpenAI/SurrealDB)
 RUN apt-get update && apt-get install -y \
-    openssl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy locally built binary
-COPY memory-mcp-bin /usr/local/bin/memory-mcp
+# Copy the GNU binary built locally
+# Ensure you ran `cargo build --release` or `scripts/build_all.sh` first
+COPY target/release/memory-mcp /usr/local/bin/memory-mcp
 
-# Data directory
+# Data directory setup
 RUN mkdir -p /data
 ENV DATA_DIR=/data
 ENV LOG_LEVEL=info

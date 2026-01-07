@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::CallToolResult;
 use serde_json::json;
 
 use crate::config::AppState;
@@ -11,16 +11,13 @@ use crate::server::params::{
 use crate::storage::StorageBackend;
 use crate::types::{Memory, MemoryType, MemoryUpdate};
 
-use super::{embedding_loading_response, strip_embedding, strip_embeddings};
+use super::{error_response, normalize_limit, strip_embedding, strip_embeddings, success_json};
 
 pub async fn store_memory(
     state: &Arc<AppState>,
     params: StoreMemoryParams,
 ) -> anyhow::Result<CallToolResult> {
-    let status = state.embedding.status().await;
-    if !status.is_ready() {
-        return Ok(embedding_loading_response(&status));
-    }
+    crate::ensure_embedding_ready!(state);
 
     let embedding = state.embedding.embed(&params.content).await?;
 
@@ -47,12 +44,8 @@ pub async fn store_memory(
     };
 
     match state.storage.create_memory(memory).await {
-        Ok(id) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "id": id }).to_string(),
-        )])),
-        Err(e) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": e.to_string() }).to_string(),
-        )])),
+        Ok(id) => Ok(success_json(json!({ "id": id }))),
+        Err(e) => Ok(error_response(e)),
     }
 }
 
@@ -63,16 +56,12 @@ pub async fn get_memory(
     match state.storage.get_memory(&params.id).await {
         Ok(Some(mut memory)) => {
             strip_embedding(&mut memory);
-            Ok(CallToolResult::success(vec![Content::text(
-                serde_json::to_string(&memory).unwrap_or_default(),
-            )]))
+            Ok(success_json(
+                serde_json::to_value(&memory).unwrap_or_default(),
+            ))
         }
-        Ok(None) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": format!("Memory not found: {}", params.id) }).to_string(),
-        )])),
-        Err(e) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": e.to_string() }).to_string(),
-        )])),
+        Ok(None) => Ok(error_response(format!("Memory not found: {}", params.id))),
+        Err(e) => Ok(error_response(e)),
     }
 }
 
@@ -89,13 +78,11 @@ pub async fn update_memory(
     match state.storage.update_memory(&params.id, update).await {
         Ok(mut memory) => {
             strip_embedding(&mut memory);
-            Ok(CallToolResult::success(vec![Content::text(
-                serde_json::to_string(&memory).unwrap_or_default(),
-            )]))
+            Ok(success_json(
+                serde_json::to_value(&memory).unwrap_or_default(),
+            ))
         }
-        Err(e) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": e.to_string() }).to_string(),
-        )])),
+        Err(e) => Ok(error_response(e)),
     }
 }
 
@@ -104,12 +91,8 @@ pub async fn delete_memory(
     params: DeleteMemoryParams,
 ) -> anyhow::Result<CallToolResult> {
     match state.storage.delete_memory(&params.id).await {
-        Ok(deleted) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "deleted": deleted }).to_string(),
-        )])),
-        Err(e) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": e.to_string() }).to_string(),
-        )])),
+        Ok(deleted) => Ok(success_json(json!({ "deleted": deleted }))),
+        Err(e) => Ok(error_response(e)),
     }
 }
 
@@ -117,37 +100,30 @@ pub async fn list_memories(
     state: &Arc<AppState>,
     params: ListMemoriesParams,
 ) -> anyhow::Result<CallToolResult> {
-    let limit = params.limit.unwrap_or(20).min(100);
+    let limit = normalize_limit(params.limit);
     let offset = params.offset.unwrap_or(0);
 
     let mut memories = match state.storage.list_memories(limit, offset).await {
         Ok(m) => m,
-        Err(e) => {
-            return Ok(CallToolResult::success(vec![Content::text(
-                json!({ "error": e.to_string() }).to_string(),
-            )]));
-        }
+        Err(e) => return Ok(error_response(e)),
     };
 
     strip_embeddings(&mut memories);
     let total = state.storage.count_memories().await.unwrap_or(0);
 
-    Ok(CallToolResult::success(vec![Content::text(
-        json!({
-            "memories": memories,
-            "total": total,
-            "limit": limit,
-            "offset": offset
-        })
-        .to_string(),
-    )]))
+    Ok(success_json(json!({
+        "memories": memories,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    })))
 }
 
 pub async fn get_valid(
     state: &Arc<AppState>,
     params: GetValidParams,
 ) -> anyhow::Result<CallToolResult> {
-    let limit = params.limit.unwrap_or(20).min(100);
+    let limit = normalize_limit(params.limit);
 
     match state
         .storage
@@ -156,17 +132,12 @@ pub async fn get_valid(
     {
         Ok(mut memories) => {
             strip_embeddings(&mut memories);
-            Ok(CallToolResult::success(vec![Content::text(
-                json!({
-                    "memories": memories,
-                    "count": memories.len()
-                })
-                .to_string(),
-            )]))
+            Ok(success_json(json!({
+                "memories": memories,
+                "count": memories.len()
+            })))
         }
-        Err(e) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": e.to_string() }).to_string(),
-        )])),
+        Err(e) => Ok(error_response(e)),
     }
 }
 
@@ -174,16 +145,13 @@ pub async fn get_valid_at(
     state: &Arc<AppState>,
     params: GetValidAtParams,
 ) -> anyhow::Result<CallToolResult> {
-    let limit = params.limit.unwrap_or(20).min(100);
+    let limit = normalize_limit(params.limit);
 
-    let ts: chrono::DateTime<chrono::Utc> = match params.timestamp.parse() {
+    let chrono_ts: chrono::DateTime<chrono::Utc> = match params.timestamp.parse() {
         Ok(t) => t,
-        Err(_) => {
-            return Ok(CallToolResult::success(vec![Content::text(
-                json!({ "error": "Invalid timestamp format. Use ISO 8601" }).to_string(),
-            )]));
-        }
+        Err(_) => return Ok(error_response("Invalid timestamp format. Use ISO 8601")),
     };
+    let ts = surrealdb::sql::Datetime::from(chrono_ts);
 
     match state
         .storage
@@ -192,18 +160,13 @@ pub async fn get_valid_at(
     {
         Ok(mut memories) => {
             strip_embeddings(&mut memories);
-            Ok(CallToolResult::success(vec![Content::text(
-                json!({
-                    "memories": memories,
-                    "count": memories.len(),
-                    "timestamp": params.timestamp
-                })
-                .to_string(),
-            )]))
+            Ok(success_json(json!({
+                "memories": memories,
+                "count": memories.len(),
+                "timestamp": params.timestamp
+            })))
         }
-        Err(e) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": e.to_string() }).to_string(),
-        )])),
+        Err(e) => Ok(error_response(e)),
     }
 }
 
@@ -220,12 +183,8 @@ pub async fn invalidate(
         )
         .await
     {
-        Ok(success) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "invalidated": success }).to_string(),
-        )])),
-        Err(e) => Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": e.to_string() }).to_string(),
-        )])),
+        Ok(success) => Ok(success_json(json!({ "invalidated": success }))),
+        Err(e) => Ok(error_response(e)),
     }
 }
 

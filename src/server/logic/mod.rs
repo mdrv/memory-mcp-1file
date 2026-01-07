@@ -10,6 +10,44 @@ use serde_json::json;
 use crate::embedding::EmbeddingStatus;
 use crate::types::{Entity, Memory};
 
+// ============================================================================
+// Logic Constants & Helpers
+// ============================================================================
+
+pub const DEFAULT_LIMIT: usize = 20;
+pub const MAX_LIMIT: usize = 100;
+
+pub fn normalize_limit(limit: Option<usize>) -> usize {
+    limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT)
+}
+
+// ============================================================================
+// Response Helpers (deduplication)
+// ============================================================================
+
+/// Create error response from any Display type
+pub fn error_response(e: impl std::fmt::Display) -> CallToolResult {
+    CallToolResult::success(vec![Content::text(
+        json!({ "error": e.to_string() }).to_string(),
+    )])
+}
+
+/// Create success response from JSON value
+pub fn success_json(value: serde_json::Value) -> CallToolResult {
+    CallToolResult::success(vec![Content::text(value.to_string())])
+}
+
+/// Create success response from serializable value
+pub fn success_serialize<T: serde::Serialize>(value: &T) -> CallToolResult {
+    CallToolResult::success(vec![Content::text(
+        serde_json::to_string(value).unwrap_or_default(),
+    )])
+}
+
+// ============================================================================
+// Embedding Helpers
+// ============================================================================
+
 pub fn strip_embedding(memory: &mut Memory) {
     memory.embedding.take();
 }
@@ -67,5 +105,31 @@ pub fn embedding_loading_response(status: &EmbeddingStatus) -> CallToolResult {
         EmbeddingStatus::Ready => {
             CallToolResult::success(vec![Content::text(json!({"status": "ready"}).to_string())])
         }
+    }
+}
+
+/// Macro to check embedding status and return early if not ready
+#[macro_export]
+macro_rules! ensure_embedding_ready {
+    ($state:expr) => {
+        let status = $state.embedding.status().await;
+        if !status.is_ready() {
+            return Ok(crate::server::logic::embedding_loading_response(&status));
+        }
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_limit() {
+        assert_eq!(normalize_limit(None), DEFAULT_LIMIT);
+        assert_eq!(normalize_limit(Some(10)), 10);
+        assert_eq!(normalize_limit(Some(50)), 50);
+        assert_eq!(normalize_limit(Some(100)), 100);
+        assert_eq!(normalize_limit(Some(101)), MAX_LIMIT);
+        assert_eq!(normalize_limit(Some(1000)), MAX_LIMIT);
     }
 }

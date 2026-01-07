@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::CallToolResult;
 use serde_json::json;
 
 use crate::config::AppState;
 use crate::embedding::EmbeddingStatus;
 use crate::server::params::{GetStatusParams, ResetAllMemoryParams};
 use crate::storage::StorageBackend;
+
+use super::{error_response, success_json};
 
 pub async fn get_status(
     state: &Arc<AppState>,
@@ -64,15 +66,12 @@ pub async fn get_status(
         overall_status
     };
 
-    Ok(CallToolResult::success(vec![Content::text(
-        json!({
-            "version": env!("CARGO_PKG_VERSION"),
-            "status": status,
-            "memories_count": memories_count,
-            "embedding": embedding_json
-        })
-        .to_string(),
-    )]))
+    Ok(success_json(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "status": status,
+        "memories_count": memories_count,
+        "embedding": embedding_json
+    })))
 }
 
 pub async fn reset_all_memory(
@@ -80,20 +79,15 @@ pub async fn reset_all_memory(
     params: ResetAllMemoryParams,
 ) -> anyhow::Result<CallToolResult> {
     if !params.confirm {
-        return Ok(CallToolResult::success(vec![Content::text(
-            json!({ "error": "Must set confirm=true to reset all data" }).to_string(),
-        )]));
+        return Ok(error_response("Must set confirm=true to reset all data"));
     }
 
     state.storage.reset_db().await?;
 
-    Ok(CallToolResult::success(vec![Content::text(
-        json!({
-            "reset": true,
-            "warning": "All data has been cleared"
-        })
-        .to_string(),
-    )]))
+    Ok(success_json(json!({
+        "reset": true,
+        "warning": "All data has been cleared"
+    })))
 }
 
 #[cfg(test)]

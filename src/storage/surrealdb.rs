@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use surrealdb::engine::local::{Db, SurrealKv};
+use surrealdb::sql::Datetime;
 use surrealdb::Surreal;
 
 use super::StorageBackend;
@@ -174,8 +174,8 @@ impl StorageBackend for SurrealStorage {
                 chunk_type,
                 name,
                 vector::similarity::cosine(embedding, $vec) AS score 
-            FROM code_chunks 
-            WHERE embedding IS NOT NULL
+            FROM code_chunks
+            WHERE embedding IS NOT NONE
               AND ($project_id = NONE OR project_id = $project_id)
             ORDER BY score DESC 
             LIMIT $limit
@@ -424,7 +424,7 @@ impl StorageBackend for SurrealStorage {
 
     async fn get_valid_at(
         &self,
-        timestamp: DateTime<Utc>,
+        timestamp: Datetime,
         user_id: Option<&str>,
         limit: usize,
     ) -> Result<Vec<Memory>> {
@@ -505,6 +505,35 @@ impl StorageBackend for SurrealStorage {
         Ok(deleted.len())
     }
 
+    async fn delete_chunks_by_path(&self, project_id: &str, file_path: &str) -> Result<usize> {
+        let sql = "DELETE FROM code_chunks WHERE project_id = $project_id AND file_path = $file_path RETURN BEFORE";
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .bind(("file_path", file_path.to_string()))
+            .await?;
+        let deleted: Vec<CodeChunk> = response.take(0).unwrap_or_default();
+        Ok(deleted.len())
+    }
+
+    async fn get_chunks_by_path(
+        &self,
+        project_id: &str,
+        file_path: &str,
+    ) -> Result<Vec<CodeChunk>> {
+        let sql =
+            "SELECT * FROM code_chunks WHERE project_id = $project_id AND file_path = $file_path";
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .bind(("file_path", file_path.to_string()))
+            .await?;
+        let chunks: Vec<CodeChunk> = response.take(0).unwrap_or_default();
+        Ok(chunks)
+    }
+
     async fn get_index_status(&self, project_id: &str) -> Result<Option<IndexStatus>> {
         let sql = "SELECT * FROM index_status WHERE project_id = $project_id LIMIT 1";
         let mut response = self
@@ -566,7 +595,6 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn reset_db(&self) -> Result<()> {
-        // Transactional delete of all data
         self.db
             .query(
                 r#"
@@ -580,6 +608,11 @@ impl StorageBackend for SurrealStorage {
             "#,
             )
             .await?;
+        Ok(())
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        self.db.query("RETURN true").await?;
         Ok(())
     }
 }

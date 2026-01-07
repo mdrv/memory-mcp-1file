@@ -1,9 +1,11 @@
 mod cache;
+mod cleanup;
 mod config;
 mod engine;
 mod service;
 
 pub use cache::{CacheStats, EmbeddingCache};
+pub use cleanup::{cleanup_model_cache, CleanupConfig, CleanupResult};
 pub use config::{EmbeddingConfig, ModelType};
 pub use engine::EmbeddingEngine;
 pub use service::EmbeddingService;
@@ -13,9 +15,11 @@ pub use service::EmbeddingService;
 #[serde(rename_all = "snake_case")]
 pub enum LoadingPhase {
     Starting,
+    CleaningCache,
     FetchingConfig,
     FetchingTokenizer,
     FetchingWeights,
+    VerifyingWeights,
     LoadingModel,
     WarmingUp,
 }
@@ -24,9 +28,11 @@ impl std::fmt::Display for LoadingPhase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Starting => write!(f, "Starting..."),
+            Self::CleaningCache => write!(f, "Cleaning stale cache..."),
             Self::FetchingConfig => write!(f, "Fetching config..."),
             Self::FetchingTokenizer => write!(f, "Fetching tokenizer..."),
-            Self::FetchingWeights => write!(f, "Fetching model weights..."),
+            Self::FetchingWeights => write!(f, "Downloading model weights..."),
+            Self::VerifyingWeights => write!(f, "Verifying model integrity (hashing)..."),
             Self::LoadingModel => write!(f, "Loading model into memory..."),
             Self::WarmingUp => write!(f, "Warming up model..."),
         }
