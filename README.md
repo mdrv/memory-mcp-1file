@@ -74,7 +74,7 @@ You have access to a persistent memory server and a protocol definition file.
 ```
 
 ### Why this matters?
-Without this protocol, the agent will treat every session as a blank slate. With this protocol, it "remembers" what it was doing yesterday.
+Without this protocol, the agent loses context after compaction or session restarts. With this protocol, it maintains the **full context of the current task**, ensuring no steps or details are lost, even when the chat history is cleared.
 
 ---
 
