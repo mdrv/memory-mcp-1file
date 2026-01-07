@@ -166,6 +166,45 @@ Environment variables or CLI args:
 | `--model` | `EMBEDDING_MODEL` | `e5_multi` | Embedding model (`e5_small`, `e5_multi`, `nomic`, `bge_m3`) |
 | `--log-level` | `LOG_LEVEL` | `info` | Verbosity |
 
+---
+
+## 🤖 Agent Integration (System Prompt)
+
+Memory is useless if your agent doesn't check it. To get the "Long-Term Memory" effect, you must instruct your agent to follow a strict protocol.
+
+We provide a battle-tested **[Memory Protocol (AGENTS.md)](./AGENTS.md)** that you can adapt.
+
+### Recommended System Prompt Snippet
+
+Copy this into your `.cursorrules` or Claude Project instructions:
+
+```markdown
+# 🧠 Memory Protocol
+You have access to a persistent memory server. You MUST use it to maintain context across sessions.
+
+1.  **Session Start (Mandatory):**
+    - ALWAYS begin by running `search_text("TASK:")` or `get_valid` to see what was left unfinished.
+    - If a task is found, summarize it and ask the user if they want to continue.
+
+2.  **Storage Structure:**
+    - Use prefixes for clarity:
+      - `PROJECT:` High-level goals and tech stack.
+      - `TASK:` Current active work (Status: in_progress/completed).
+      - `DECISION:` Important architectural choices.
+      - `USER:` User preferences and constraints.
+
+3.  **Work Cycle:**
+    - Before starting a task: `store_memory("TASK: ... Status: in_progress")`
+    - After completion: `invalidate` the old task and `store_memory("TASK: ... Status: completed")`
+
+4.  **Retrieval:**
+    - Before writing code, use `search_code` to understand existing patterns.
+    - Use `recall` to find relevant documentation or past decisions.
+```
+
+### Why this matters?
+Without this protocol, the agent will treat every session as a blank slate. With this protocol, it "remembers" what it was doing yesterday.
+
 ## License
 
 MIT
