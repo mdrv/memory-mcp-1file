@@ -142,16 +142,18 @@ impl Extractor {
 
                     let relation_type = self.support.map_relation_type(capture_name);
 
-                    references.push(CodeReference::new(
-                        name.to_string(),
-                        from_symbol,
-                        from_symbol_line,
-                        name.to_string(), // to_symbol is the same as name for now
-                        relation_type,
-                        file_path.to_string(),
-                        start_line,
-                        column,
-                    ));
+                    references.push(
+                        CodeReference::builder()
+                            .name(name.to_string())
+                            .from_symbol(from_symbol)
+                            .from_symbol_line(from_symbol_line)
+                            .to_symbol(name.to_string()) // to_symbol is the same as name for now
+                            .relation_type(relation_type)
+                            .file_path(file_path.to_string())
+                            .line(start_line)
+                            .column(column)
+                            .build(),
+                    );
                 }
             }
         }

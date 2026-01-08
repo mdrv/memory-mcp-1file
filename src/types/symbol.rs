@@ -166,25 +166,74 @@ pub struct CodeReference {
 }
 
 impl CodeReference {
-    pub fn new(
-        name: String,
-        from_symbol: String,
-        from_symbol_line: u32,
-        to_symbol: String,
-        relation_type: CodeRelationType,
-        file_path: String,
-        line: u32,
-        column: u32,
-    ) -> Self {
-        Self {
-            name,
-            from_symbol,
-            from_symbol_line,
-            to_symbol,
-            relation_type,
-            file_path,
-            line,
-            column,
+    pub fn builder() -> CodeReferenceBuilder {
+        CodeReferenceBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub struct CodeReferenceBuilder {
+    name: Option<String>,
+    from_symbol: Option<String>,
+    from_symbol_line: Option<u32>,
+    to_symbol: Option<String>,
+    relation_type: Option<CodeRelationType>,
+    file_path: Option<String>,
+    line: Option<u32>,
+    column: Option<u32>,
+}
+
+impl CodeReferenceBuilder {
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn from_symbol(mut self, from_symbol: impl Into<String>) -> Self {
+        self.from_symbol = Some(from_symbol.into());
+        self
+    }
+
+    pub fn from_symbol_line(mut self, line: u32) -> Self {
+        self.from_symbol_line = Some(line);
+        self
+    }
+
+    pub fn to_symbol(mut self, to_symbol: impl Into<String>) -> Self {
+        self.to_symbol = Some(to_symbol.into());
+        self
+    }
+
+    pub fn relation_type(mut self, relation_type: CodeRelationType) -> Self {
+        self.relation_type = Some(relation_type);
+        self
+    }
+
+    pub fn file_path(mut self, file_path: impl Into<String>) -> Self {
+        self.file_path = Some(file_path.into());
+        self
+    }
+
+    pub fn line(mut self, line: u32) -> Self {
+        self.line = Some(line);
+        self
+    }
+
+    pub fn column(mut self, column: u32) -> Self {
+        self.column = Some(column);
+        self
+    }
+
+    pub fn build(self) -> CodeReference {
+        CodeReference {
+            name: self.name.expect("name is required"),
+            from_symbol: self.from_symbol.expect("from_symbol is required"),
+            from_symbol_line: self.from_symbol_line.expect("from_symbol_line is required"),
+            to_symbol: self.to_symbol.expect("to_symbol is required"),
+            relation_type: self.relation_type.expect("relation_type is required"),
+            file_path: self.file_path.expect("file_path is required"),
+            line: self.line.expect("line is required"),
+            column: self.column.expect("column is required"),
         }
     }
 }
