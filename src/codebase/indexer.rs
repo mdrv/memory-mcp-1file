@@ -22,18 +22,17 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
         .to_string();
 
     let mut status = IndexStatus::new(project_id.clone());
+    let monitor = state.progress.get_or_create(&project_id).await;
 
     state.storage.delete_project_chunks(&project_id).await?;
     state.storage.delete_project_symbols(&project_id).await?;
 
     let files = scan_directory(project_path)?;
     status.total_files = files.len() as u32;
-    state
-        .monitor
+    monitor
         .total_files
         .store(status.total_files, std::sync::atomic::Ordering::Relaxed);
-    state
-        .monitor
+    monitor
         .indexed_files
         .store(0, std::sync::atomic::Ordering::Relaxed);
 
@@ -60,14 +59,15 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
 
             if chunk_buffer.len() >= batch_size {
                 let batch = std::mem::take(&mut chunk_buffer);
-                if let Ok(ids) = state.storage.create_code_chunks_batch(batch.clone()).await {
-                    for (id, chunk) in ids.iter().zip(batch.iter()) {
+                if let Ok(results) = state.storage.create_code_chunks_batch(batch).await {
+                    for (id, chunk) in results {
                         let _ = state
                             .embedding_queue
                             .send(EmbeddingRequest {
-                                text: chunk.content.clone(),
+                                text: chunk.content,
                                 responder: None,
-                                target: Some(EmbeddingTarget::Chunk(id.clone())),
+                                target: Some(EmbeddingTarget::Chunk(id)),
+                                retry_count: 0,
                             })
                             .await;
                     }
@@ -76,7 +76,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
         }
 
         // 2. Parsing (Code Graph)
-        let (symbols, _references) = CodeParser::parse_file(file_path, &content, &project_id);
+        let (symbols, references) = CodeParser::parse_file(file_path, &content, &project_id);
 
         if !symbols.is_empty() {
             tracing::debug!("File {:?}: found {} symbols", file_path, symbols.len());
@@ -99,6 +99,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
                                     text: sig.clone(),
                                     responder: None,
                                     target: Some(EmbeddingTarget::Symbol(id.clone())),
+                                    retry_count: 0,
                                 })
                                 .await;
                         }
@@ -107,13 +108,31 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
             }
         }
 
+        for reference in &references {
+            let relation = crate::types::SymbolRelation::new(
+                surrealdb::sql::Thing::from((
+                    "code_symbols".to_string(),
+                    reference.from_symbol.clone(),
+                )),
+                surrealdb::sql::Thing::from((
+                    "code_symbols".to_string(),
+                    reference.to_symbol.clone(),
+                )),
+                reference.relation_type,
+                reference.file_path.clone(),
+                reference.line,
+            );
+            if let Err(e) = state.storage.create_symbol_relation(relation).await {
+                tracing::debug!("Failed to create symbol relation: {}", e);
+            }
+        }
+
         status.indexed_files += 1;
-        state
-            .monitor
+        monitor
             .indexed_files
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        if status.indexed_files % 10 == 0 {
+        if status.indexed_files.is_multiple_of(10) {
             if let Err(e) = state.storage.update_index_status(status.clone()).await {
                 tracing::warn!("Failed to update intermediate status: {}", e);
             }
@@ -121,18 +140,15 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
     }
 
     if !chunk_buffer.is_empty() {
-        if let Ok(ids) = state
-            .storage
-            .create_code_chunks_batch(chunk_buffer.clone())
-            .await
-        {
-            for (id, chunk) in ids.iter().zip(chunk_buffer.iter()) {
+        if let Ok(results) = state.storage.create_code_chunks_batch(chunk_buffer).await {
+            for (id, chunk) in results {
                 let _ = state
                     .embedding_queue
                     .send(EmbeddingRequest {
-                        text: chunk.content.clone(),
+                        text: chunk.content,
                         responder: None,
-                        target: Some(EmbeddingTarget::Chunk(id.clone())),
+                        target: Some(EmbeddingTarget::Chunk(id)),
+                        retry_count: 0,
                     })
                     .await;
             }
@@ -154,13 +170,14 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
                         text: sig.clone(),
                         responder: None,
                         target: Some(EmbeddingTarget::Symbol(id.clone())),
+                        retry_count: 0,
                     })
                     .await;
             }
         }
     }
 
-    status.status = IndexState::Completed;
+    status.status = IndexState::EmbeddingPending;
     status.completed_at = Some(surrealdb::sql::Datetime::default());
 
     state.storage.update_index_status(status.clone()).await?;
@@ -234,30 +251,25 @@ pub async fn incremental_index(
             .delete_symbols_by_path(project_id, &path_str)
             .await;
 
-        // 1. Chunks
+        // 1. Chunks - async via queue (consistent with index_project)
         let chunks = super::chunker::chunk_file(&path, &content, project_id);
 
-        if let Err(e) = state.embedding.wait_for_ready().await {
-            tracing::warn!(
-                "Skipping incremental index for {:?}: model not ready ({})",
-                path,
-                e
-            );
-            continue;
-        }
-
-        for mut chunk in chunks {
-            if let Ok(emb) = state.embedding.embed(&chunk.content).await {
-                chunk.embedding = Some(emb);
-            }
-
-            if let Err(e) = state.storage.create_code_chunk(chunk).await {
-                tracing::warn!(path = %path_str, error = %e, "Failed to create chunk");
+        if let Ok(results) = state.storage.create_code_chunks_batch(chunks).await {
+            for (id, chunk) in results {
+                let _ = state
+                    .embedding_queue
+                    .send(EmbeddingRequest {
+                        text: chunk.content,
+                        responder: None,
+                        target: Some(EmbeddingTarget::Chunk(id)),
+                        retry_count: 0,
+                    })
+                    .await;
             }
         }
 
         // 2. Symbols
-        let (symbols, _) = CodeParser::parse_file(&path, &content, project_id);
+        let (symbols, references) = CodeParser::parse_file(&path, &content, project_id);
         if !symbols.is_empty() {
             let created_ids = match state
                 .storage
@@ -279,9 +291,29 @@ pub async fn incremental_index(
                             text: sig.clone(),
                             responder: None,
                             target: Some(EmbeddingTarget::Symbol(id.clone())),
+                            retry_count: 0,
                         })
                         .await;
                 }
+            }
+        }
+
+        for reference in &references {
+            let relation = crate::types::SymbolRelation::new(
+                surrealdb::sql::Thing::from((
+                    "code_symbols".to_string(),
+                    reference.from_symbol.clone(),
+                )),
+                surrealdb::sql::Thing::from((
+                    "code_symbols".to_string(),
+                    reference.to_symbol.clone(),
+                )),
+                reference.relation_type,
+                reference.file_path.clone(),
+                reference.line,
+            );
+            if let Err(e) = state.storage.create_symbol_relation(relation).await {
+                tracing::debug!("Failed to create symbol relation: {}", e);
             }
         }
 

@@ -120,7 +120,7 @@ macro_rules! ensure_embedding_ready {
     ($state:expr) => {
         let status = $state.embedding.status().await;
         if !status.is_ready() {
-            return Ok(crate::server::logic::embedding_loading_response(&status));
+            return Ok($crate::server::logic::embedding_loading_response(&status));
         }
     };
 }

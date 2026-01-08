@@ -138,7 +138,11 @@ pub trait StorageBackend: Send + Sync {
     /// Create a single code chunk, returns the generated ID
     async fn create_code_chunk(&self, chunk: CodeChunk) -> Result<String>;
 
-    async fn create_code_chunks_batch(&self, chunks: Vec<CodeChunk>) -> Result<Vec<String>>;
+    /// Create code chunks in batch, returns (id, chunk) pairs to avoid caller cloning
+    async fn create_code_chunks_batch(
+        &self,
+        chunks: Vec<CodeChunk>,
+    ) -> Result<Vec<(String, CodeChunk)>>;
 
     /// Delete all code chunks for a project, returns count of deleted chunks
     async fn delete_project_chunks(&self, project_id: &str) -> Result<usize>;

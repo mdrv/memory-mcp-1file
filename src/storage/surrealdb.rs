@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use async_trait::async_trait;
@@ -7,6 +7,7 @@ use surrealdb::sql::Datetime;
 use surrealdb::Surreal;
 
 use super::StorageBackend;
+use crate::graph::GraphTraversalStorage;
 use crate::types::{
     CodeChunk, CodeSymbol, Direction, Entity, IndexStatus, Memory, MemoryUpdate, Relation,
     ScoredCodeChunk, SearchResult, SymbolRelation,
@@ -73,6 +74,134 @@ fn generate_id() -> String {
         .as_nanos();
     let rand: u64 = (now as u64) ^ (std::process::id() as u64);
     format!("{:016x}{:04x}", now as u64, rand & 0xFFFF)
+}
+
+fn parse_thing(id: &str) -> crate::Result<surrealdb::sql::Thing> {
+    if let Some((table, key)) = id.split_once(':') {
+        Ok(surrealdb::sql::Thing::from((
+            table.to_string(),
+            key.to_string(),
+        )))
+    } else {
+        Err(crate::AppError::Database(format!(
+            "Invalid thing ID format: {}",
+            id
+        )))
+    }
+}
+
+#[async_trait]
+impl GraphTraversalStorage for SurrealStorage {
+    async fn get_direct_relations(
+        &self,
+        entity_id: &str,
+        direction: Direction,
+    ) -> Result<(Vec<Entity>, Vec<Relation>)> {
+        use crate::types::ThingId;
+
+        let entity_thing = ThingId::new("entities", entity_id)?.to_string();
+
+        let sql = match direction {
+            Direction::Outgoing => "SELECT * FROM relations WHERE `in` = type::thing($entity_id)",
+            Direction::Incoming => "SELECT * FROM relations WHERE `out` = type::thing($entity_id)",
+            Direction::Both => {
+                "SELECT * FROM relations WHERE `in` = type::thing($entity_id) OR `out` = type::thing($entity_id)"
+            }
+        };
+
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("entity_id", entity_thing.clone()))
+            .await?;
+
+        let relations: Vec<Relation> = response.take(0).unwrap_or_default();
+
+        let mut entity_ids: HashSet<String> = HashSet::new();
+        for rel in &relations {
+            match direction {
+                Direction::Outgoing => {
+                    entity_ids.insert(rel.to_entity.id.to_string());
+                }
+                Direction::Incoming => {
+                    entity_ids.insert(rel.from_entity.id.to_string());
+                }
+                Direction::Both => {
+                    let from_id = rel.from_entity.id.to_string();
+                    let to_id = rel.to_entity.id.to_string();
+                    if from_id != entity_id {
+                        entity_ids.insert(from_id);
+                    }
+                    if to_id != entity_id {
+                        entity_ids.insert(to_id);
+                    }
+                }
+            }
+        }
+
+        let mut entities: Vec<Entity> = vec![];
+        for eid in entity_ids {
+            if let Some(entity) = self.get_entity(&eid).await? {
+                entities.push(entity);
+            }
+        }
+
+        Ok((entities, relations))
+    }
+
+    async fn get_direct_relations_batch(
+        &self,
+        entity_ids: &[String],
+        direction: Direction,
+    ) -> Result<(Vec<Entity>, Vec<Relation>)> {
+        if entity_ids.is_empty() {
+            return Ok((vec![], vec![]));
+        }
+
+        let things: Vec<String> = entity_ids
+            .iter()
+            .map(|id| {
+                use crate::types::ThingId;
+                ThingId::new("entities", id).map(|t| t.to_string())
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        let sql = match direction {
+            Direction::Outgoing => "SELECT * FROM relations WHERE `in` IN $entity_ids",
+            Direction::Incoming => "SELECT * FROM relations WHERE `out` IN $entity_ids",
+            Direction::Both => {
+                "SELECT * FROM relations WHERE `in` IN $entity_ids OR `out` IN $entity_ids"
+            }
+        };
+
+        let mut response = self.db.query(sql).bind(("entity_ids", things)).await?;
+
+        let relations: Vec<Relation> = response.take(0).unwrap_or_default();
+
+        let source_ids: HashSet<&String> = entity_ids.iter().collect();
+        let mut new_entity_ids: HashSet<String> = HashSet::new();
+
+        for rel in &relations {
+            let from_id = rel.from_entity.id.to_string();
+            let to_id = rel.to_entity.id.to_string();
+
+            if !source_ids.contains(&from_id) {
+                new_entity_ids.insert(from_id);
+            }
+            if !source_ids.contains(&to_id) {
+                new_entity_ids.insert(to_id);
+            }
+        }
+
+        let mut entities: Vec<Entity> = vec![];
+        for eid in new_entity_ids {
+            if let Some(entity) = self.get_entity(&eid).await? {
+                entities.push(entity);
+            }
+        }
+
+        Ok((entities, relations))
+    }
 }
 
 #[async_trait]
@@ -275,17 +404,26 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn create_relation(&self, relation: Relation) -> Result<String> {
-        let id = generate_id();
-        let from_thing = format!("{}:{}", relation.from_entity.tb, relation.from_entity.id);
-        let to_thing = format!("{}:{}", relation.to_entity.tb, relation.to_entity.id);
+        use crate::types::ThingId;
 
-        let sql = format!(
-            "CREATE relations:{} SET `in` = {}, `out` = {}, relation_type = $rel_type, weight = $weight",
-            id, from_thing, to_thing
-        );
+        let id = generate_id();
+        let from_thing = ThingId::new(
+            &relation.from_entity.tb,
+            &relation.from_entity.id.to_string(),
+        )?;
+        let to_thing = ThingId::new(&relation.to_entity.tb, &relation.to_entity.id.to_string())?;
+
+        let sql = "CREATE type::thing(\"relations\", $id) SET \
+            `in` = type::thing($from), \
+            `out` = type::thing($to), \
+            relation_type = $rel_type, \
+            weight = $weight";
 
         self.db
-            .query(&sql)
+            .query(sql)
+            .bind(("id", id.clone()))
+            .bind(("from", from_thing.to_string()))
+            .bind(("to", to_thing.to_string()))
             .bind(("rel_type", relation.relation_type))
             .bind(("weight", relation.weight))
             .await?;
@@ -299,91 +437,55 @@ impl StorageBackend for SurrealStorage {
         depth: usize,
         direction: Direction,
     ) -> Result<(Vec<Entity>, Vec<Relation>)> {
-        let _depth = depth.clamp(1, 3);
-        let entity_thing = format!("entities:{}", entity_id);
+        use crate::graph::GraphTraverser;
 
-        let sql = match direction {
-            Direction::Outgoing => {
-                "SELECT * FROM relations WHERE `in` = type::thing($entity_id)"
-            }
-            Direction::Incoming => {
-                "SELECT * FROM relations WHERE `out` = type::thing($entity_id)"
-            }
-            Direction::Both => {
-                "SELECT * FROM relations WHERE `in` = type::thing($entity_id) OR `out` = type::thing($entity_id)"
-            }
-        };
+        let traverser = GraphTraverser::new(self);
+        let result = traverser.traverse(entity_id, depth, direction).await?;
 
-        let mut response = self
-            .db
-            .query(sql)
-            .bind(("entity_id", entity_thing.clone()))
-            .await?;
-
-        let relations: Vec<Relation> = response.take(0).unwrap_or_default();
-
-        let mut entity_ids: Vec<String> = vec![];
-        for rel in &relations {
-            match direction {
-                Direction::Outgoing => {
-                    entity_ids.push(rel.to_entity.id.to_string());
-                }
-                Direction::Incoming => {
-                    entity_ids.push(rel.from_entity.id.to_string());
-                }
-                Direction::Both => {
-                    if rel.from_entity.id.to_string() != entity_id {
-                        entity_ids.push(rel.from_entity.id.to_string());
-                    }
-                    if rel.to_entity.id.to_string() != entity_id {
-                        entity_ids.push(rel.to_entity.id.to_string());
-                    }
-                }
-            }
-        }
-
-        let mut entities: Vec<Entity> = vec![];
-        for eid in entity_ids {
-            if let Some(entity) = self.get_entity(&eid).await? {
-                entities.push(entity);
-            }
-        }
-
-        Ok((entities, relations))
+        Ok((result.entities, result.relations))
     }
 
     async fn get_subgraph(&self, entity_ids: &[String]) -> Result<(Vec<Entity>, Vec<Relation>)> {
+        use crate::types::ThingId;
+
         if entity_ids.is_empty() {
             return Ok((vec![], vec![]));
         }
-        let ids_str = entity_ids
-            .iter()
-            .map(|id| format!("entities:{}", id))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            "SELECT * FROM relations WHERE in IN [{}] AND out IN [{}]",
-            ids_str, ids_str
-        );
-        let mut response = self.db.query(&sql).await?;
-        let relations: Vec<Relation> = response.take(0).unwrap_or_default();
 
-        let entity_sql = format!("SELECT * FROM entities WHERE id IN [{}]", ids_str);
-        let mut entity_response = self.db.query(&entity_sql).await?;
-        let entities: Vec<Entity> = entity_response.take(0).unwrap_or_default();
+        let validated_ids: Vec<ThingId> = entity_ids
+            .iter()
+            .map(|id| ThingId::new("entities", id))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        // Use String instead of &str for 'static lifetime required by SurrealDB .bind()
+        let ids: Vec<String> = validated_ids.iter().map(|t| t.to_string()).collect();
+
+        let sql = "SELECT * FROM relations WHERE in IN $ids AND out IN $ids";
+        let mut response = self.db.query(sql).bind(("ids", ids.clone())).await?;
+        let relations: Vec<Relation> = response.take(0)?;
+
+        let entity_sql = "SELECT * FROM entities WHERE id IN $ids";
+        let mut entity_response = self.db.query(entity_sql).bind(("ids", ids)).await?;
+        let entities: Vec<Entity> = entity_response.take(0)?;
 
         Ok((entities, relations))
     }
 
     async fn get_node_degrees(&self, entity_ids: &[String]) -> Result<HashMap<String, usize>> {
+        use crate::types::ThingId;
+
         let mut degrees = HashMap::new();
         for id in entity_ids {
-            let sql = format!(
-                "SELECT count() FROM relations WHERE in = entities:{} OR out = entities:{} GROUP ALL",
-                id, id
-            );
-            let mut response = self.db.query(sql).await?;
-            let result: Option<serde_json::Value> = response.take(0).ok().flatten();
+            let thing = ThingId::new("entities", id)?;
+
+            let sql = "SELECT count() FROM relations \
+                WHERE in = type::thing($id) OR out = type::thing($id) \
+                GROUP ALL";
+
+            // Use to_string() for 'static lifetime required by SurrealDB .bind()
+            let mut response = self.db.query(sql).bind(("id", thing.to_string())).await?;
+
+            let result: Option<serde_json::Value> = response.take(0)?;
             let count = result
                 .and_then(|v| v.get("count").and_then(|c| c.as_u64()))
                 .unwrap_or(0) as usize;
@@ -475,7 +577,10 @@ impl StorageBackend for SurrealStorage {
         Ok(id)
     }
 
-    async fn create_code_chunks_batch(&self, mut chunks: Vec<CodeChunk>) -> Result<Vec<String>> {
+    async fn create_code_chunks_batch(
+        &self,
+        mut chunks: Vec<CodeChunk>,
+    ) -> Result<Vec<(String, CodeChunk)>> {
         let count = chunks.len();
         if count == 0 {
             return Ok(vec![]);
@@ -490,12 +595,12 @@ impl StorageBackend for SurrealStorage {
 
         let created: Vec<CodeChunk> = self.db.insert("code_chunks").content(chunks).await?;
 
-        let ids = created
+        let pairs = created
             .into_iter()
-            .filter_map(|c| c.id.map(|t| t.to_string()))
+            .filter_map(|c| c.id.as_ref().map(|t| (t.to_string(), c.clone())))
             .collect();
 
-        Ok(ids)
+        Ok(pairs)
     }
 
     async fn delete_project_chunks(&self, project_id: &str) -> Result<usize> {
@@ -550,8 +655,40 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn update_index_status(&self, status: IndexStatus) -> Result<()> {
-        let id = ("index_status", &status.project_id);
-        let _: Option<IndexStatus> = self.db.update(id).content(status).await?;
+        let sql = r#"
+            UPDATE index_status SET 
+                status = $status,
+                total_files = $total_files,
+                indexed_files = $indexed_files,
+                total_chunks = $total_chunks,
+                total_symbols = $total_symbols,
+                started_at = $started_at,
+                completed_at = $completed_at,
+                error_message = $error_message
+            WHERE project_id = $project_id
+        "#;
+
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", status.project_id.clone()))
+            .bind(("status", status.status.clone()))
+            .bind(("total_files", status.total_files))
+            .bind(("indexed_files", status.indexed_files))
+            .bind(("total_chunks", status.total_chunks))
+            .bind(("total_symbols", status.total_symbols))
+            .bind(("started_at", status.started_at.clone()))
+            .bind(("completed_at", status.completed_at.clone()))
+            .bind(("error_message", status.error_message.clone()))
+            .await?;
+
+        let updated: Vec<IndexStatus> = response.take(0).unwrap_or_default();
+
+        if updated.is_empty() {
+            let id = ("index_status", &status.project_id);
+            let _: Option<IndexStatus> = self.db.create(id).content(status).await?;
+        }
+
         Ok(())
     }
 
@@ -601,7 +738,7 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn update_symbol_embedding(&self, id: &str, embedding: Vec<f32>) -> Result<()> {
-        let sql = "UPDATE code_symbols SET embedding = $embedding WHERE id = $id";
+        let sql = "UPDATE code_symbols SET embedding = $embedding WHERE id = type::thing($id)";
         let _ = self
             .db
             .query(sql)
@@ -612,7 +749,7 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn update_chunk_embedding(&self, id: &str, embedding: Vec<f32>) -> Result<()> {
-        let sql = "UPDATE code_chunks SET embedding = $embedding WHERE id = $id";
+        let sql = "UPDATE code_chunks SET embedding = $embedding WHERE id = type::thing($id)";
         let _ = self
             .db
             .query(sql)
@@ -659,34 +796,36 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn get_symbol_callers(&self, symbol_id: &str) -> Result<Vec<CodeSymbol>> {
-        // Query to get Incoming edges (calls) -> From Node
+        let thing = parse_thing(symbol_id)?;
         let sql = r#"
             SELECT * FROM code_symbols 
             WHERE id IN (
                 SELECT VALUE in FROM symbol_relation 
-                WHERE out = type::thing($id) AND relation_type = 'calls'
+                WHERE out = $thing AND relation_type = 'calls'
             )
         "#;
 
-        let mut response = self
-            .db
-            .query(sql)
-            .bind(("id", symbol_id.to_string()))
-            .await?;
+        let mut response = self.db.query(sql).bind(("thing", thing)).await?;
 
         let symbols: Vec<CodeSymbol> = response.take(0)?;
         Ok(symbols)
     }
 
     async fn get_symbol_callees(&self, symbol_id: &str) -> Result<Vec<CodeSymbol>> {
-        let sql = "SELECT * FROM (SELECT ->symbol_relation[WHERE relation_type = 'calls'].out as callees FROM type::thing($id)).callees";
+        let sql = r#"
+            SELECT * FROM code_symbols 
+            WHERE id IN (
+                SELECT VALUE out FROM symbol_relation 
+                WHERE in = type::thing($id) AND relation_type = 'calls'
+            )
+        "#;
         let mut response = self
             .db
             .query(sql)
             .bind(("id", symbol_id.to_string()))
             .await?;
-        let result: Option<Vec<CodeSymbol>> = response.take(0)?;
-        Ok(result.unwrap_or_default())
+        let result: Vec<CodeSymbol> = response.take(0)?;
+        Ok(result)
     }
 
     async fn get_related_symbols(
@@ -695,12 +834,21 @@ impl StorageBackend for SurrealStorage {
         depth: usize,
         direction: Direction,
     ) -> Result<(Vec<CodeSymbol>, Vec<SymbolRelation>)> {
+        use crate::types::ThingId;
+
         let _depth = depth.clamp(1, 3);
-        // Ensure symbol_id is in correct format "code_symbols:..."
+
         let symbol_thing = if !symbol_id.contains(':') {
-            format!("code_symbols:{}", symbol_id)
+            ThingId::new("code_symbols", symbol_id)?.to_string()
         } else {
-            symbol_id.to_string()
+            let parts: Vec<&str> = symbol_id.splitn(2, ':').collect();
+            if parts.len() != 2 {
+                return Err(crate::types::AppError::Database(format!(
+                    "Invalid symbol ID format: {}",
+                    symbol_id
+                )));
+            }
+            ThingId::new(parts[0], parts[1])?.to_string()
         };
 
         let sql = match direction {
@@ -775,7 +923,7 @@ impl StorageBackend for SurrealStorage {
         project_id: Option<&str>,
     ) -> Result<Vec<CodeSymbol>> {
         let mut sql = "SELECT * FROM code_symbols WHERE name ~ $query".to_string();
-        if let Some(_) = project_id {
+        if project_id.is_some() {
             sql.push_str(" AND project_id = $project_id");
         }
         sql.push_str(" LIMIT 20");
@@ -850,6 +998,8 @@ mod tests {
             valid_until: None,
             importance_score: 1.0,
             invalidation_reason: None,
+            content_hash: None,
+            embedding_state: Default::default(),
         };
 
         let id = storage.create_memory(memory.clone()).await.unwrap();
@@ -867,6 +1017,9 @@ mod tests {
             content: Some("Updated content".to_string()),
             memory_type: None,
             metadata: None,
+            embedding: None,
+            content_hash: None,
+            embedding_state: None,
         };
         let updated = storage.update_memory(&id, update).await.unwrap();
         assert_eq!(updated.content, "Updated content");
@@ -897,6 +1050,8 @@ mod tests {
                 valid_until: None,
                 importance_score: 1.0,
                 invalidation_reason: None,
+                content_hash: None,
+                embedding_state: Default::default(),
             })
             .await
             .unwrap();
@@ -915,6 +1070,8 @@ mod tests {
                 valid_until: None,
                 importance_score: 1.0,
                 invalidation_reason: None,
+                content_hash: None,
+                embedding_state: Default::default(),
             })
             .await
             .unwrap();
@@ -935,6 +1092,7 @@ mod tests {
                 entity_type: "person".to_string(),
                 description: None,
                 embedding: None,
+                content_hash: None,
                 user_id: None,
                 created_at: Datetime::default(),
             })
@@ -948,6 +1106,7 @@ mod tests {
                 entity_type: "place".to_string(),
                 description: None,
                 embedding: None,
+                content_hash: None,
                 user_id: None,
                 created_at: Datetime::default(),
             })
@@ -1002,15 +1161,16 @@ mod tests {
         let callee_id = storage.create_code_symbol(callee).await.unwrap();
 
         // 2. Create Relation: main calls helper
+        let caller_key = caller_id
+            .strip_prefix("code_symbols:")
+            .unwrap_or(&caller_id);
+        let callee_key = callee_id
+            .strip_prefix("code_symbols:")
+            .unwrap_or(&callee_id);
+
         let relation = SymbolRelation::new(
-            surrealdb::sql::Thing::from((
-                "code_symbols".to_string(),
-                caller_id.split(':').nth(1).unwrap().to_string(),
-            )),
-            surrealdb::sql::Thing::from((
-                "code_symbols".to_string(),
-                callee_id.split(':').nth(1).unwrap().to_string(),
-            )),
+            surrealdb::sql::Thing::from(("code_symbols".to_string(), caller_key.to_string())),
+            surrealdb::sql::Thing::from(("code_symbols".to_string(), callee_key.to_string())),
             CodeRelationType::Calls,
             "main.rs".to_string(),
             3,
@@ -1048,6 +1208,8 @@ mod tests {
                 valid_until: None,
                 importance_score: 1.0,
                 invalidation_reason: None,
+                content_hash: None,
+                embedding_state: Default::default(),
             })
             .await
             .unwrap();
@@ -1082,6 +1244,8 @@ mod tests {
                 valid_until: None,
                 importance_score: 1.0,
                 invalidation_reason: None,
+                content_hash: None,
+                embedding_state: Default::default(),
             })
             .await
             .unwrap();
@@ -1115,8 +1279,8 @@ mod tests {
             })
             .collect();
 
-        let count = storage.create_code_chunks_batch(chunks).await.unwrap();
-        assert_eq!(count, 50);
+        let results = storage.create_code_chunks_batch(chunks).await.unwrap();
+        assert_eq!(results.len(), 50);
 
         let _status = storage.get_index_status("test_project").await.unwrap();
         // that's handled by the indexer. But we can verify chunks exist.

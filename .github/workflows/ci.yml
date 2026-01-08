@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check
+        run: cargo check --all-features
+
+      - name: Test
+        run: cargo test
+
+  security:
+    name: Security Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for SQL injection patterns in storage layer
+        run: |
+          echo "Checking for potential SQL injection patterns..."
+          
+          # Pattern: format! with SQL-like content in storage module (risky if using user input)
+          # Safe patterns: format! for IDs after .create(), error messages, test data
+          # Risky patterns: format! that creates "table:{user_input}" before validation
+          
+          # Check for format! creating thing IDs that might bypass ThingId validation
+          RISKY_PATTERNS=$(grep -n 'format!.*entities:\|format!.*relations:\|format!.*code_symbols:\|format!.*code_chunks:' src/storage/*.rs || true)
+          
+          if [ -n "$RISKY_PATTERNS" ]; then
+            echo "⚠️  Found format! with table patterns in storage layer:"
+            echo "$RISKY_PATTERNS"
+            echo ""
+            echo "Please review these patterns. Safe usage:"
+            echo "  - After SurrealDB .create(id) returns (id already validated)"
+            echo "  - In error messages"
+            echo "  - In test code"
+            echo ""
+            echo "Unsafe usage (must use ThingId validation):"
+            echo "  - Before passing to .bind() or SQL query"
+            echo "  - With external user input"
+            echo ""
+            
+            # Count occurrences - allow up to 10 (known safe ones)
+            COUNT=$(echo "$RISKY_PATTERNS" | wc -l)
+            if [ "$COUNT" -gt 10 ]; then
+              echo "❌ Too many format! patterns ($COUNT). Review required."
+              exit 1
+            fi
+            
+            echo "✅ Found $COUNT patterns - within expected range (likely safe)"
+          else
+            echo "✅ No risky format! patterns found"
+          fi
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Format Check
+        run: cargo fmt --check

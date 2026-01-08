@@ -68,6 +68,7 @@ pub fn detect_language(path: &Path) -> Language {
         "js" | "jsx" => Language::JavaScript,
         "ts" | "tsx" => Language::TypeScript,
         "go" => Language::Go,
+        "java" => Language::Java,
         _ => Language::Unknown,
     }
 }

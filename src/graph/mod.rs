@@ -6,6 +6,7 @@
 pub mod leiden;
 pub mod ppr;
 pub mod rrf;
+pub mod traversal;
 
 pub use leiden::detect_communities;
 pub use ppr::{
@@ -13,4 +14,7 @@ pub use ppr::{
 };
 pub use rrf::{
     rrf_merge, RrfScores, DEFAULT_BM25_WEIGHT, DEFAULT_PPR_WEIGHT, DEFAULT_VECTOR_WEIGHT, RRF_K,
+};
+pub use traversal::{
+    GraphTraversalStorage, GraphTraverser, TraversalConfig, TraversalResult, TraversalStrategy,
 };

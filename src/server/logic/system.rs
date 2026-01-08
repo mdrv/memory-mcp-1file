@@ -116,6 +116,8 @@ mod tests {
                 valid_until: None,
                 importance_score: 1.0,
                 invalidation_reason: None,
+                content_hash: None,
+                embedding_state: Default::default(),
             })
             .await
             .unwrap();

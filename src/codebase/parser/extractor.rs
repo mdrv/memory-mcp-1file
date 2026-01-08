@@ -1,5 +1,5 @@
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Node, Parser, Query, QueryCursor};
+use tree_sitter::{Parser, Query, QueryCursor};
 
 use crate::types::symbol::{CodeReference, CodeSymbol};
 use crate::types::Language;
@@ -39,7 +39,7 @@ impl Extractor {
         };
 
         let symbols = self.extract_symbols(&tree, content, file_path, project_id);
-        let references = self.extract_references(&tree, content, file_path);
+        let references = self.extract_references(&tree, content, file_path, &symbols);
 
         (symbols, references)
     }
@@ -75,9 +75,9 @@ impl Extractor {
                     let start_line = node.start_position().row as u32 + 1;
                     let end_line = node.end_position().row as u32 + 1;
 
-                    let signature: Option<&str> = node
+                    let signature = node
                         .parent()
-                        .and_then(|p: Node| p.utf8_text(content.as_bytes()).ok());
+                        .and_then(|p| self.support.extract_signature(&p, content.as_bytes()));
 
                     let mut symbol = CodeSymbol::new(
                         name.to_string(),
@@ -89,14 +89,7 @@ impl Extractor {
                     );
 
                     if let Some(sig) = signature {
-                        let truncated = sig
-                            .lines()
-                            .next()
-                            .unwrap_or(sig)
-                            .chars()
-                            .take(200)
-                            .collect::<String>();
-                        symbol = symbol.with_signature(truncated);
+                        symbol = symbol.with_signature(sig);
                     }
 
                     symbols.push(symbol);
@@ -112,6 +105,7 @@ impl Extractor {
         tree: &tree_sitter::Tree,
         content: &str,
         file_path: &str,
+        symbols: &[CodeSymbol],
     ) -> Vec<CodeReference> {
         let query_source = self.support.get_reference_query();
         let query = match Query::new(&self.support.get_language(), query_source) {
@@ -130,13 +124,26 @@ impl Extractor {
         while let Some(m) = matches.next() {
             for capture in m.captures {
                 let node = capture.node;
+                let capture_name = query.capture_names()[capture.index as usize];
 
                 if let Ok(name) = node.utf8_text(content.as_bytes()) {
                     let start_line = node.start_position().row as u32 + 1;
                     let column = node.start_position().column as u32;
 
+                    // Find which symbol contains this reference
+                    let from_symbol = symbols
+                        .iter()
+                        .find(|s| start_line >= s.start_line && start_line <= s.end_line)
+                        .map(|s| s.name.clone())
+                        .unwrap_or_else(|| "global".to_string());
+
+                    let relation_type = self.support.map_relation_type(capture_name);
+
                     references.push(CodeReference::new(
                         name.to_string(),
+                        from_symbol,
+                        name.to_string(), // to_symbol is the same as name for now
+                        relation_type,
                         file_path.to_string(),
                         start_line,
                         column,

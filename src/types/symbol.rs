@@ -108,25 +108,45 @@ impl CodeSymbol {
     }
 
     pub fn unique_key(&self) -> String {
-        format!(
-            "{}:{}:{}:{}",
-            self.project_id, self.file_path, self.name, self.start_line
-        )
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        self.project_id.hash(&mut hasher);
+        self.file_path.hash(&mut hasher);
+        self.name.hash(&mut hasher);
+        self.start_line.hash(&mut hasher);
+
+        format!("{:016x}", hasher.finish())
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeReference {
     pub name: String,
+    pub from_symbol: String,
+    pub to_symbol: String,
+    pub relation_type: CodeRelationType,
     pub file_path: String,
     pub line: u32,
     pub column: u32,
 }
 
 impl CodeReference {
-    pub fn new(name: String, file_path: String, line: u32, column: u32) -> Self {
+    pub fn new(
+        name: String,
+        from_symbol: String,
+        to_symbol: String,
+        relation_type: CodeRelationType,
+        file_path: String,
+        line: u32,
+        column: u32,
+    ) -> Self {
         Self {
             name,
+            from_symbol,
+            to_symbol,
+            relation_type,
             file_path,
             line,
             column,
@@ -148,7 +168,7 @@ pub struct SymbolRelation {
     pub relation_type: CodeRelationType,
 
     pub file_path: String,
-    pub line: u32,
+    pub line_number: u32,
 
     #[serde(default = "default_datetime")]
     pub created_at: Datetime,
@@ -160,7 +180,7 @@ impl SymbolRelation {
         to_symbol: Thing,
         relation_type: CodeRelationType,
         file_path: String,
-        line: u32,
+        line_number: u32,
     ) -> Self {
         Self {
             id: None,
@@ -168,7 +188,7 @@ impl SymbolRelation {
             to_symbol,
             relation_type,
             file_path,
-            line,
+            line_number,
             created_at: Datetime::default(),
         }
     }

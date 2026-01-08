@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Initialize Embedding Store (L1/L2 Cache)
-    let embedding_store = Arc::new(EmbeddingStore::new(&cli.data_dir)?);
+    let embedding_store = Arc::new(EmbeddingStore::new(&cli.data_dir, model.repo_id())?);
 
     let embedding_config = EmbeddingConfig {
         model,
@@ -89,7 +89,10 @@ async fn main() -> anyhow::Result<()> {
     let embedding = Arc::new(EmbeddingService::new(embedding_config));
     embedding.start_loading();
 
-    let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(1000);
+    let metrics = std::sync::Arc::new(memory_mcp::embedding::EmbeddingMetrics::new());
+    let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(5000);
+    let adaptive_queue =
+        memory_mcp::embedding::AdaptiveEmbeddingQueue::with_defaults(queue_tx, metrics.clone());
 
     let state = Arc::new(AppState {
         config: AppConfig {
@@ -103,8 +106,8 @@ async fn main() -> anyhow::Result<()> {
         storage: storage.clone(),
         embedding: embedding.clone(),
         embedding_store: embedding_store.clone(),
-        embedding_queue: queue_tx,
-        monitor: Arc::new(memory_mcp::config::IndexMonitor::default()),
+        embedding_queue: adaptive_queue,
+        progress: memory_mcp::config::IndexProgressTracker::new(),
     });
 
     let worker = EmbeddingWorker::new(

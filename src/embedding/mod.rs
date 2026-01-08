@@ -1,15 +1,27 @@
+pub mod adaptive_queue;
 mod cache;
 mod cleanup;
 mod config;
+pub mod coordinator;
 mod engine;
+pub mod handle;
+pub mod hasher;
+pub mod metrics;
+pub mod policy;
 mod service;
 pub mod store;
 pub mod worker;
 
+pub use adaptive_queue::{AdaptiveEmbeddingQueue, AdaptiveQueueConfig};
 pub use cache::{CacheStats, EmbeddingCache};
 pub use cleanup::{cleanup_model_cache, CleanupConfig, CleanupResult};
 pub use config::{EmbeddingConfig, ModelType};
+pub use coordinator::EmbeddingCoordinator;
 pub use engine::EmbeddingEngine;
+pub use handle::WorkerHandle;
+pub use hasher::ContentHasher;
+pub use metrics::EmbeddingMetrics;
+pub use policy::{EmbedStrategy, EmbeddingPolicy};
 pub use service::EmbeddingService;
 pub use store::EmbeddingStore;
 pub use worker::{EmbeddingRequest, EmbeddingTarget, EmbeddingWorker};

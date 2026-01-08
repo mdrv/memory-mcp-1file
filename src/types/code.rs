@@ -96,6 +96,7 @@ pub struct IndexStatus {
 #[serde(rename_all = "lowercase")]
 pub enum IndexState {
     Indexing,
+    EmbeddingPending,
     Completed,
     Failed,
 }
@@ -104,6 +105,7 @@ impl std::fmt::Display for IndexState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             IndexState::Indexing => write!(f, "indexing"),
+            IndexState::EmbeddingPending => write!(f, "embedding_pending"),
             IndexState::Completed => write!(f, "completed"),
             IndexState::Failed => write!(f, "failed"),
         }

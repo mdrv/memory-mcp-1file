@@ -8,6 +8,41 @@ pub trait LanguageSupport: Send + Sync {
 
     fn map_symbol_type(&self, kind: &str) -> SymbolType;
     fn map_relation_type(&self, kind: &str) -> CodeRelationType;
+
+    fn extract_signature(&self, parent_node: &tree_sitter::Node, content: &[u8]) -> Option<String> {
+        let text = parent_node.utf8_text(content).ok()?;
+        let sig = extract_until_body_start(text);
+        if sig.is_empty() {
+            None
+        } else {
+            Some(sig.chars().take(500).collect())
+        }
+    }
+}
+
+fn extract_until_body_start(text: &str) -> String {
+    let mut depth = 0;
+    let mut result = String::new();
+
+    for ch in text.chars() {
+        match ch {
+            '{' | '[' if depth == 0 => break,
+            '(' => {
+                depth += 1;
+                result.push(ch);
+            }
+            ')' => {
+                depth -= 1;
+                result.push(ch);
+            }
+            '\n' if depth == 0 => {
+                result.push(' ');
+            }
+            _ => result.push(ch),
+        }
+    }
+
+    result.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub struct RustSupport;

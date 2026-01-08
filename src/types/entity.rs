@@ -9,14 +9,23 @@ fn default_datetime() -> Datetime {
     Datetime::default()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+fn default_entity_type() -> String {
+    "unknown".to_string()
+}
+
+fn default_name() -> String {
+    String::new()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Entity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
 
+    #[serde(default = "default_name")]
     pub name: String,
 
-    #[serde(default)]
+    #[serde(default = "default_entity_type")]
     pub entity_type: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -24,6 +33,9 @@ pub struct Entity {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding: Option<Vec<f32>>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub content_hash: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
@@ -72,6 +84,7 @@ impl Entity {
             entity_type: "unknown".to_string(),
             description: None,
             embedding: None,
+            content_hash: None,
             user_id: None,
             created_at: Datetime::default(),
         }

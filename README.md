@@ -31,6 +31,35 @@ It combines:
 3.  **Code Indexing** for understanding your codebase.
 4.  **Hybrid Retrieval** (Reciprocal Rank Fusion) for best results.
 
+### 🏗️ Architecture
+
+```mermaid
+graph TD
+    User[AI Agent / IDE]
+    
+    subgraph "Memory MCP Server"
+        MS[MCP Server]
+        
+        subgraph "Core Engines"
+            ES[Embedding Service]
+            GS[Graph Service]
+            CS[Codebase Service]
+        end
+        
+        MS -- "Store / Search" --> ES
+        MS -- "Relate Entities" --> GS
+        MS -- "Index" --> CS
+        
+        ES -- "Vectorize Text" --> SDB[(SurrealDB Embedded)]
+        GS -- "Knowledge Graph" --> SDB
+        CS -- "AST Chunks" --> SDB
+    end
+
+    User -- "MCP Protocol" --> MS
+```
+
+> **[Click here for the Detailed Architecture Documentation](./ARCHITECTURE.md)**
+
 ---
 
 ## 🤖 Agent Integration (System Prompt)
@@ -75,32 +104,6 @@ You have access to a persistent memory server and a protocol definition file.
 
 ### Why this matters?
 Without this protocol, the agent loses context after compaction or session restarts. With this protocol, it maintains the **full context of the current task**, ensuring no steps or details are lost, even when the chat history is cleared.
-
----
-
-## 🚀 Quick Start
-
-### Option 1: Docker (Recommended)
-
-No installation required. Run directly from GitHub Container Registry.
-
-**Interactive Run (Test):**
-```bash
-# Create a volume for persistent data
-docker volume create mcp-data
-
-# Run
-docker run -i --rm -v mcp-data:/data ghcr.io/pomazanbohdan/memory-mcp-1file:latest
-```
-
-### Option 2: Local Binary
-
-If you have Rust installed:
-
-```bash
-cargo install --path .
-memory-mcp
-```
 
 ---
 
@@ -175,32 +178,53 @@ docker run --init -i --rm \
 
 ## 🛠️ Tools Available
 
-The server exposes **21 tools** to the AI model.
+The server exposes **26 tools** to the AI model, organized into logical categories.
 
-### 🧠 Core Memory
+### 🧠 Core Memory Management
 | Tool | Description |
 |------|-------------|
 | `store_memory` | Store a new memory with content and optional metadata. |
-| `recall` | **Hybrid search** (Vector + Keyword + Graph). Best for general questions. |
-| `search` | Pure vector search. |
-| `search_text` | Exact keyword match (BM25). |
+| `update_memory` | Update an existing memory (only provided fields). |
+| `delete_memory` | Delete a memory by its ID. |
+| `list_memories` | List memories with pagination (newest first). |
+| `get_memory` | Get a specific memory by ID. |
+| `invalidate` | Soft-delete a memory (mark as invalid). |
 | `get_valid` | Get currently active memories (filters out expired ones). |
+| `get_valid_at` | Get memories that were valid at a specific past timestamp. |
+
+### 🔎 Search & Retrieval
+| Tool | Description |
+|------|-------------|
+| `recall` | **Hybrid search** (Vector + Keyword + Graph). Best for general questions. |
+| `search` | Pure semantic vector search. |
+| `search_text` | Exact keyword match (BM25). |
 
 ### 🕸️ Knowledge Graph
 | Tool | Description |
 |------|-------------|
 | `create_entity` | Define a node (e.g., "React", "Authentication"). |
 | `create_relation` | Link nodes (e.g., "Project" -> "uses" -> "React"). |
-| `get_related` | Find connected concepts. |
+| `get_related` | Find connected concepts via graph traversal. |
+| `detect_communities` | Detect communities in the graph using Leiden algorithm. |
 
-### 💻 Codebase
+### 💻 Codebase Intelligence
 | Tool | Description |
 |------|-------------|
-| `index_project` | Scan a local folder for code. |
+| `index_project` | Scan and index a local folder for code search. |
+| `get_index_status` | Check if indexing is in progress or failed. |
+| `list_projects` | List all indexed projects. |
+| `delete_project` | Remove a project and its code chunks from the index. |
 | `search_code` | Semantic search over code chunks. |
 | `search_symbols` | Search for functions/classes by name. |
 | `get_callers` | Find functions that call a given symbol. |
 | `get_callees` | Find functions called by a given symbol. |
+| `get_related_symbols` | Get related symbols via graph traversal. |
+
+### ⚙️ System & Maintenance
+| Tool | Description |
+|------|-------------|
+| `get_status` | Get server health and loading status. |
+| `reset_all_memory` | **DANGER**: Wipes all data (memories, graph, code). |
 
 ---
 

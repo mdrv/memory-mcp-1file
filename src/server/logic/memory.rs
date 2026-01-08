@@ -4,11 +4,13 @@ use rmcp::model::CallToolResult;
 use serde_json::json;
 
 use crate::config::AppState;
+use crate::embedding::ContentHasher;
 use crate::server::params::{
     DeleteMemoryParams, GetMemoryParams, GetValidAtParams, GetValidParams, InvalidateParams,
     ListMemoriesParams, StoreMemoryParams, UpdateMemoryParams,
 };
 use crate::storage::StorageBackend;
+use crate::types::EmbeddingState;
 use crate::types::{Memory, MemoryType, MemoryUpdate};
 
 use super::{error_response, normalize_limit, strip_embedding, strip_embeddings, success_json};
@@ -29,7 +31,6 @@ pub async fn store_memory(
 
     let now = surrealdb::sql::Datetime::default();
     let memory = Memory {
-        id: None,
         content: params.content,
         embedding: Some(embedding),
         memory_type: mem_type,
@@ -38,9 +39,7 @@ pub async fn store_memory(
         event_time: now.clone(),
         ingestion_time: now.clone(),
         valid_from: now,
-        valid_until: None,
-        importance_score: 1.0,
-        invalidation_reason: None,
+        ..Default::default()
     };
 
     match state.storage.create_memory(memory).await {
@@ -69,10 +68,28 @@ pub async fn update_memory(
     state: &Arc<AppState>,
     params: UpdateMemoryParams,
 ) -> anyhow::Result<CallToolResult> {
+    let (embedding, content_hash, embedding_state) = if let Some(ref new_content) = params.content {
+        let old_memory = state.storage.get_memory(&params.id).await?;
+        let old_hash = old_memory.as_ref().and_then(|m| m.content_hash.as_deref());
+
+        if ContentHasher::needs_reembed(old_hash, new_content) {
+            let emb = state.embedding.embed(new_content).await?;
+            let hash = ContentHasher::hash(new_content);
+            (Some(emb), Some(hash), Some(EmbeddingState::Ready))
+        } else {
+            (None, None, None)
+        }
+    } else {
+        (None, None, None)
+    };
+
     let update = MemoryUpdate {
         content: params.content,
         memory_type: params.memory_type.and_then(|s| s.parse().ok()),
         metadata: params.metadata,
+        embedding,
+        content_hash,
+        embedding_state,
     };
 
     match state.storage.update_memory(&params.id, update).await {

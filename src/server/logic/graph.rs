@@ -4,6 +4,7 @@ use rmcp::model::CallToolResult;
 use serde_json::json;
 
 use crate::config::AppState;
+use crate::embedding::ContentHasher;
 use crate::graph::detect_communities as detect_communities_algo;
 use crate::server::params::{
     CreateEntityParams, CreateRelationParams, DetectCommunitiesParams, GetRelatedParams,
@@ -17,14 +18,22 @@ pub async fn create_entity(
     state: &Arc<AppState>,
     params: CreateEntityParams,
 ) -> anyhow::Result<CallToolResult> {
+    let embed_text = format!(
+        "{}: {}",
+        params.name,
+        params.description.as_deref().unwrap_or("")
+    );
+    let embedding = state.embedding.embed(&embed_text).await.ok();
+    let content_hash = Some(ContentHasher::hash(&embed_text));
+
     let entity = Entity {
-        id: None,
         name: params.name,
         entity_type: params.entity_type.unwrap_or_else(|| "unknown".to_string()),
         description: params.description,
-        embedding: None,
+        embedding,
+        content_hash,
         user_id: params.user_id,
-        created_at: surrealdb::sql::Datetime::default(),
+        ..Default::default()
     };
 
     match state.storage.create_entity(entity).await {

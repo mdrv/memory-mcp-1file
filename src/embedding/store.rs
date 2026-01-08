@@ -3,9 +3,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use moka::future::Cache;
-use redb::{Database, ReadableDatabase, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 
 const CACHE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("embeddings");
+const META_TABLE: TableDefinition<&str, &str> = TableDefinition::new("meta");
+const META_KEY_MODEL: &str = "model_name";
 
 #[derive(Clone)]
 pub struct EmbeddingStore {
@@ -13,46 +15,59 @@ pub struct EmbeddingStore {
     ram_cache: Cache<String, Vec<f32>>,
     // L2 Cache: Disk (Persistent)
     disk_cache: Arc<Database>,
+    model_name: String,
 }
 
 impl EmbeddingStore {
-    pub fn new(data_dir: &Path) -> Result<Self> {
+    pub fn new(data_dir: &Path, model_name: &str) -> Result<Self> {
         let db_path = data_dir.join("cache.redb");
         let disk_cache = Database::create(db_path)?;
 
-        // Initialize table if not exists
         let write_txn = disk_cache.begin_write()?;
         {
             let _table = write_txn.open_table(CACHE_TABLE)?;
+            let mut meta = write_txn.open_table(META_TABLE)?;
+
+            let stored_model = meta.get(META_KEY_MODEL)?.map(|v| v.value().to_string());
+            if stored_model.as_deref() != Some(model_name) {
+                if stored_model.is_some() {
+                    tracing::warn!(
+                        "Embedding model changed from {:?} to {}, cache will be rebuilt",
+                        stored_model,
+                        model_name
+                    );
+                }
+                meta.insert(META_KEY_MODEL, model_name)?;
+            }
         }
         write_txn.commit()?;
 
         Ok(Self {
-            // Store up to 10,000 embeddings in RAM
             ram_cache: Cache::builder().max_capacity(10_000).build(),
             disk_cache: Arc::new(disk_cache),
+            model_name: model_name.to_string(),
         })
     }
 
+    fn cache_key(&self, hash: &str) -> String {
+        format!("{}:{}", self.model_name, hash)
+    }
+
     pub async fn get(&self, hash: &str) -> Option<Vec<f32>> {
-        // 1. Check RAM
-        if let Some(vec) = self.ram_cache.get(hash).await {
+        let key = self.cache_key(hash);
+
+        if let Some(vec) = self.ram_cache.get(&key).await {
             return Some(vec);
         }
 
-        // 2. Check Disk
-        // redb operations are synchronous (blocking I/O), so strictly speaking
-        // they should be wrapped in spawn_blocking for max performance,
-        // but redb is very fast (memory mapped), so direct access is often acceptable.
-        // For strict correctness in async context:
         let db = self.disk_cache.clone();
-        let hash_owned = hash.to_string();
+        let key_owned = key.clone();
 
         let vec_opt = tokio::task::spawn_blocking(move || -> Result<Option<Vec<f32>>> {
             let read_txn = db.begin_read()?;
             let table = read_txn.open_table(CACHE_TABLE)?;
 
-            if let Some(value) = table.get(hash_owned.as_str())? {
+            if let Some(value) = table.get(key_owned.as_str())? {
                 let vec: Vec<f32> =
                     bincode::serde::decode_from_slice(value.value(), bincode::config::standard())?
                         .0;
@@ -65,19 +80,18 @@ impl EmbeddingStore {
         .ok()?
         .ok()?;
 
-        // 3. Populate RAM (Promote to L1)
         if let Some(ref vec) = vec_opt {
-            self.ram_cache.insert(hash.to_string(), vec.clone()).await;
+            self.ram_cache.insert(key, vec.clone()).await;
         }
 
         vec_opt
     }
 
     pub async fn put(&self, hash: String, embedding: Vec<f32>) -> Result<()> {
-        // 1. Write to RAM
-        self.ram_cache.insert(hash.clone(), embedding.clone()).await;
+        let key = self.cache_key(&hash);
 
-        // 2. Write to Disk
+        self.ram_cache.insert(key.clone(), embedding.clone()).await;
+
         let db = self.disk_cache.clone();
 
         tokio::task::spawn_blocking(move || -> Result<()> {
@@ -85,7 +99,7 @@ impl EmbeddingStore {
             {
                 let mut table = write_txn.open_table(CACHE_TABLE)?;
                 let bytes = bincode::serde::encode_to_vec(&embedding, bincode::config::standard())?;
-                table.insert(hash.as_str(), bytes.as_slice())?;
+                table.insert(key.as_str(), bytes.as_slice())?;
             }
             write_txn.commit()?;
             Ok(())
@@ -104,24 +118,37 @@ mod tests {
     #[tokio::test]
     async fn test_embedding_store_persistence() {
         let dir = tempdir().unwrap();
-        let store = EmbeddingStore::new(dir.path()).unwrap();
+        let store = EmbeddingStore::new(dir.path(), "test-model").unwrap();
 
         let hash = "abc123hash".to_string();
         let embedding = vec![0.1, 0.2, 0.3];
 
-        // 1. Put
         store.put(hash.clone(), embedding.clone()).await.unwrap();
 
-        // 2. Get (from RAM)
         let retrieved = store.get(&hash).await.unwrap();
         assert_eq!(retrieved, embedding);
 
-        // 3. Re-open to test Disk persistence
         drop(store);
-        let store2 = EmbeddingStore::new(dir.path()).unwrap();
+        let store2 = EmbeddingStore::new(dir.path(), "test-model").unwrap();
 
-        // 4. Get (from Disk)
         let retrieved2 = store2.get(&hash).await.unwrap();
         assert_eq!(retrieved2, embedding);
+    }
+
+    #[tokio::test]
+    async fn test_model_change_warns() {
+        let dir = tempdir().unwrap();
+        let store = EmbeddingStore::new(dir.path(), "model-v1").unwrap();
+
+        let hash = "test-hash".to_string();
+        let embedding = vec![1.0, 2.0, 3.0];
+        store.put(hash.clone(), embedding.clone()).await.unwrap();
+
+        drop(store);
+
+        let store2 = EmbeddingStore::new(dir.path(), "model-v2").unwrap();
+
+        let result = store2.get(&hash).await;
+        assert!(result.is_none());
     }
 }

@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 
-use crate::embedding::{EmbeddingRequest, EmbeddingService, EmbeddingStore};
+use crate::embedding::{AdaptiveEmbeddingQueue, EmbeddingService, EmbeddingStore};
 use crate::storage::SurrealStorage;
 
 #[derive(Debug, Clone)]
@@ -46,11 +47,51 @@ impl Default for IndexMonitor {
     }
 }
 
+pub struct IndexProgressTracker {
+    projects: RwLock<HashMap<String, Arc<IndexMonitor>>>,
+}
+
+impl IndexProgressTracker {
+    pub fn new() -> Self {
+        Self {
+            projects: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub async fn get_or_create(&self, project_id: &str) -> Arc<IndexMonitor> {
+        {
+            let projects = self.projects.read().await;
+            if let Some(monitor) = projects.get(project_id) {
+                return monitor.clone();
+            }
+        }
+        let mut projects = self.projects.write().await;
+        projects
+            .entry(project_id.to_string())
+            .or_insert_with(|| Arc::new(IndexMonitor::default()))
+            .clone()
+    }
+
+    pub async fn get(&self, project_id: &str) -> Option<Arc<IndexMonitor>> {
+        self.projects.read().await.get(project_id).cloned()
+    }
+
+    pub async fn remove(&self, project_id: &str) {
+        self.projects.write().await.remove(project_id);
+    }
+}
+
+impl Default for IndexProgressTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct AppState {
     pub config: AppConfig,
     pub storage: Arc<SurrealStorage>,
     pub embedding: Arc<EmbeddingService>,
     pub embedding_store: Arc<EmbeddingStore>,
-    pub embedding_queue: mpsc::Sender<EmbeddingRequest>,
-    pub monitor: Arc<IndexMonitor>,
+    pub embedding_queue: AdaptiveEmbeddingQueue,
+    pub progress: IndexProgressTracker,
 }

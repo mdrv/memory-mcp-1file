@@ -17,6 +17,7 @@ pub struct EmbeddingRequest {
     pub text: String,
     pub responder: Option<oneshot::Sender<Vec<f32>>>,
     pub target: Option<EmbeddingTarget>,
+    pub retry_count: u8,
 }
 
 pub struct EmbeddingWorker {
@@ -41,49 +42,54 @@ impl EmbeddingWorker {
         }
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self) -> usize {
         let mut batch = Vec::with_capacity(32);
+        let mut processed_count = 0;
         let deadline = tokio::time::sleep(Duration::from_millis(100));
         tokio::pin!(deadline);
 
         loop {
-            // Process pending batch if ready
-            if !batch.is_empty() {
-                if !self.process_batch(&mut batch).await {
-                    // Engine not ready, retry after delay
-                    tokio::time::sleep(Duration::from_millis(500)).await;
-                    continue;
-                }
-                deadline
-                    .as_mut()
-                    .reset(tokio::time::Instant::now() + Duration::from_millis(100));
-            }
-
             tokio::select! {
-                Some(req) = self.queue.recv() => {
-                    batch.push(req);
-                    if batch.len() >= 32 {
-                        if !self.process_batch(&mut batch).await {
-                            // Engine not ready, retry loop
-                            tokio::time::sleep(Duration::from_millis(500)).await;
-                        } else {
-                            deadline.as_mut().reset(tokio::time::Instant::now() + Duration::from_millis(100));
+                biased;
+
+                recv_result = self.queue.recv() => {
+                    match recv_result {
+                        Some(req) => {
+                            batch.push(req);
+                            if batch.len() >= 32 {
+                                if self.process_batch(&mut batch).await {
+                                    processed_count += 32;
+                                }
+                                deadline.as_mut().reset(tokio::time::Instant::now() + Duration::from_millis(100));
+                            }
+                        }
+                        None => {
+                            if !batch.is_empty() {
+                                let remaining = batch.len();
+                                tracing::info!(remaining, "Draining remaining embedding requests");
+                                if self.process_batch(&mut batch).await {
+                                    processed_count += remaining;
+                                }
+                            }
+                            tracing::info!(processed_count, "Embedding worker shutdown complete");
+                            break;
                         }
                     }
                 }
+
                 _ = &mut deadline => {
                     if !batch.is_empty() {
-                        if !self.process_batch(&mut batch).await {
-                            // Retry loop
-                        } else {
-                            deadline.as_mut().reset(tokio::time::Instant::now() + Duration::from_millis(100));
+                        let count = batch.len();
+                        if self.process_batch(&mut batch).await {
+                            processed_count += count;
                         }
-                    } else {
-                        deadline.as_mut().reset(tokio::time::Instant::now() + Duration::from_millis(100));
                     }
+                    deadline.as_mut().reset(tokio::time::Instant::now() + Duration::from_millis(100));
                 }
             }
         }
+
+        processed_count
     }
 
     #[instrument(skip(self, batch), fields(batch_size = batch.len()))]
@@ -130,8 +136,20 @@ impl EmbeddingWorker {
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Batch embedding failed: {}", e);
-                    // Drop failing batch to avoid stuck loop on inference error
+                    tracing::error!(
+                        "Batch embedding failed (items will have no embeddings): {}",
+                        e
+                    );
+                    // Log retry info for monitoring - actual re-queue needs queue sender
+                    for req in batch.iter() {
+                        if req.retry_count < 3 {
+                            tracing::warn!(
+                                "Embedding failed for target {:?} (attempt {}/3)",
+                                req.target,
+                                req.retry_count + 1
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -164,10 +182,8 @@ impl EmbeddingWorker {
                         }
                     });
                 }
-            } else {
-                if let Some(tx) = req.responder {
-                    let _ = tx.send(vec![]);
-                }
+            } else if let Some(tx) = req.responder {
+                let _ = tx.send(vec![]);
             }
         }
 
@@ -178,7 +194,9 @@ impl EmbeddingWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embedding::{EmbeddingConfig, EmbeddingService, ModelType};
+    use crate::embedding::{
+        AdaptiveEmbeddingQueue, EmbeddingConfig, EmbeddingMetrics, EmbeddingService, ModelType,
+    };
     use crate::storage::SurrealStorage;
     use tempfile::tempdir;
 
@@ -186,7 +204,7 @@ mod tests {
     async fn test_worker_initialization() {
         let dir = tempdir().unwrap();
         let storage = Arc::new(SurrealStorage::new(dir.path()).await.unwrap());
-        let store = Arc::new(EmbeddingStore::new(dir.path()).unwrap());
+        let store = Arc::new(EmbeddingStore::new(dir.path(), "mock").unwrap());
 
         let config = EmbeddingConfig {
             model: ModelType::Mock,
@@ -197,6 +215,8 @@ mod tests {
         let service = Arc::new(EmbeddingService::new(config));
 
         let (tx, rx) = mpsc::channel(100);
+        let metrics = std::sync::Arc::new(EmbeddingMetrics::new());
+        let adaptive_queue = AdaptiveEmbeddingQueue::with_defaults(tx, metrics);
 
         let _worker = EmbeddingWorker::new(
             rx,
@@ -207,8 +227,8 @@ mod tests {
                 storage,
                 embedding: service,
                 embedding_store: store,
-                embedding_queue: tx,
-                monitor: Arc::new(crate::config::IndexMonitor::default()),
+                embedding_queue: adaptive_queue,
+                progress: crate::config::IndexProgressTracker::new(),
             }),
         );
     }

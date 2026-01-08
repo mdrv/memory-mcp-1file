@@ -20,8 +20,7 @@ impl EmbeddingCache {
     }
 
     fn cache_key(text: &str, model_version: &str) -> String {
-        let normalized = text.trim().to_lowercase();
-        let hash = blake3::hash(format!("{}:{}", normalized, model_version).as_bytes());
+        let hash = blake3::hash(format!("{}:{}", text, model_version).as_bytes());
         hash.to_hex().to_string()
     }
 
@@ -93,12 +92,14 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_normalization() {
+    fn test_cache_no_normalization() {
         let cache = EmbeddingCache::new(10);
         let model = "test-model";
         let vec = vec![1.0];
 
-        cache.put("  Hello  ", model, vec.clone());
-        assert_eq!(cache.get("hello", model), Some(vec));
+        cache.put("Hello", model, vec.clone());
+        assert_eq!(cache.get("Hello", model), Some(vec.clone()));
+        assert!(cache.get("hello", model).is_none());
+        assert!(cache.get("  Hello  ", model).is_none());
     }
 }

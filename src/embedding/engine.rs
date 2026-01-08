@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config, DTYPE};
@@ -92,22 +92,29 @@ impl EmbeddingEngine {
             return Ok(vec);
         }
 
-        let tokens = self
+        let tokenizer = self
             .tokenizer
             .as_ref()
-            .unwrap()
-            .encode(text, true)
-            .map_err(anyhow::Error::msg)?;
+            .ok_or_else(|| anyhow!("Tokenizer not loaded"))?;
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| anyhow!("Model not loaded"))?;
 
-        let token_ids = tokens.get_ids();
-        let token_ids_tensor = Tensor::new(token_ids, &self.device)?.unsqueeze(0)?;
+        let tokens = tokenizer.encode(text, true).map_err(anyhow::Error::msg)?;
+
+        let vocab_size = tokenizer.get_vocab_size(true) as u32;
+        let unk_id = tokenizer.token_to_id("[UNK]").unwrap_or(0);
+        let token_ids: Vec<u32> = tokens
+            .get_ids()
+            .iter()
+            .map(|&id| if id >= vocab_size { unk_id } else { id })
+            .collect();
+
+        let token_ids_tensor = Tensor::new(&token_ids[..], &self.device)?.unsqueeze(0)?;
         let token_type_ids = Tensor::new(tokens.get_type_ids(), &self.device)?.unsqueeze(0)?;
 
-        let embeddings =
-            self.model
-                .as_ref()
-                .unwrap()
-                .forward(&token_ids_tensor, &token_type_ids, None)?;
+        let embeddings = model.forward(&token_ids_tensor, &token_type_ids, None)?;
 
         let (_n_batch, seq_len, _hidden_size) = embeddings.dims3()?;
         let pooled = (embeddings.sum(1)? / (seq_len as f64))?;
@@ -143,8 +150,17 @@ impl EmbeddingEngine {
             return Ok(results);
         }
 
-        let tokenizer = self.tokenizer.as_ref().unwrap();
-        let model = self.model.as_ref().unwrap();
+        let tokenizer = self
+            .tokenizer
+            .as_ref()
+            .ok_or_else(|| anyhow!("Tokenizer not loaded"))?;
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| anyhow!("Model not loaded"))?;
+
+        let vocab_size = tokenizer.get_vocab_size(true) as u32;
+        let unk_id = tokenizer.token_to_id("[UNK]").unwrap_or(0);
 
         // 1. Tokenize all texts
         let mut all_token_ids = Vec::with_capacity(texts.len());
@@ -155,10 +171,14 @@ impl EmbeddingEngine {
             let tokens = tokenizer
                 .encode(text.as_str(), true)
                 .map_err(anyhow::Error::msg)?;
-            let token_ids = tokens.get_ids();
+            let token_ids: Vec<u32> = tokens
+                .get_ids()
+                .iter()
+                .map(|&id| if id >= vocab_size { unk_id } else { id })
+                .collect();
             let type_ids = tokens.get_type_ids();
             max_len = max_len.max(token_ids.len());
-            all_token_ids.push(token_ids.to_vec());
+            all_token_ids.push(token_ids);
             all_token_type_ids.push(type_ids.to_vec());
         }
 
@@ -177,8 +197,8 @@ impl EmbeddingEngine {
 
             // Padding (0)
             let pad_len = max_len - ids.len();
-            flat_token_ids.extend(std::iter::repeat(0).take(pad_len));
-            flat_type_ids.extend(std::iter::repeat(0).take(pad_len));
+            flat_token_ids.extend(std::iter::repeat_n(0, pad_len));
+            flat_type_ids.extend(std::iter::repeat_n(0, pad_len));
         }
 
         let batch_token_ids = Tensor::new(flat_token_ids.as_slice(), &self.device)?

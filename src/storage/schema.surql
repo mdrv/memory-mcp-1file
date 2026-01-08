@@ -18,6 +18,8 @@ DEFINE FIELD valid_from       ON memories TYPE datetime DEFAULT time::now();
 DEFINE FIELD valid_until      ON memories TYPE option<datetime>;
 DEFINE FIELD importance_score ON memories TYPE float DEFAULT 1.0;
 DEFINE FIELD invalidation_reason ON memories TYPE option<string>;
+DEFINE FIELD content_hash     ON memories TYPE option<string>;
+DEFINE FIELD embedding_state  ON memories TYPE string DEFAULT 'none';
 
 DEFINE INDEX IF NOT EXISTS idx_memories_vec ON memories 
     FIELDS embedding HNSW DIMENSION 768 DIST COSINE;
@@ -30,6 +32,7 @@ DEFINE FIELD name             ON entities TYPE string;
 DEFINE FIELD entity_type      ON entities TYPE string DEFAULT 'unknown';
 DEFINE FIELD description      ON entities TYPE option<string>;
 DEFINE FIELD embedding        ON entities TYPE option<array<float>>;
+DEFINE FIELD content_hash     ON entities TYPE option<string>;
 DEFINE FIELD user_id          ON entities TYPE option<string>;
 DEFINE FIELD created_at       ON entities TYPE datetime DEFAULT time::now();
 

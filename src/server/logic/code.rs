@@ -107,15 +107,30 @@ pub async fn search_code(
     let query_embedding = state.embedding.embed(&params.query).await?;
 
     let limit = normalize_limit(params.limit);
-    match state
+    let results = state
         .storage
         .vector_search_code(&query_embedding, params.project_id.as_deref(), limit)
         .await
-    {
-        Ok(results) => Ok(success_json(json!({
+        .unwrap_or_default();
+
+    if !results.is_empty() {
+        return Ok(success_json(json!({
             "results": results,
             "count": results.len(),
             "query": params.query
+        })));
+    }
+
+    match state
+        .storage
+        .bm25_search_code(&params.query, params.project_id.as_deref(), limit)
+        .await
+    {
+        Ok(fallback) => Ok(success_json(json!({
+            "results": fallback,
+            "count": fallback.len(),
+            "query": params.query,
+            "note": "fallback to text search"
         }))),
         Err(e) => Ok(error_response(e)),
     }
@@ -128,20 +143,20 @@ pub async fn get_index_status(
     match state.storage.get_index_status(&params.project_id).await {
         Ok(Some(mut status)) => {
             if status.status == crate::types::IndexState::Indexing {
-                let indexed = state
-                    .monitor
-                    .indexed_files
-                    .load(std::sync::atomic::Ordering::Relaxed);
-                let total = state
-                    .monitor
-                    .total_files
-                    .load(std::sync::atomic::Ordering::Relaxed);
+                if let Some(monitor) = state.progress.get(&params.project_id).await {
+                    let indexed = monitor
+                        .indexed_files
+                        .load(std::sync::atomic::Ordering::Relaxed);
+                    let total = monitor
+                        .total_files
+                        .load(std::sync::atomic::Ordering::Relaxed);
 
-                if indexed > 0 {
-                    status.indexed_files = std::cmp::max(status.indexed_files, indexed);
-                }
-                if total > 0 {
-                    status.total_files = std::cmp::max(status.total_files, total);
+                    if indexed > 0 {
+                        status.indexed_files = std::cmp::max(status.indexed_files, indexed);
+                    }
+                    if total > 0 {
+                        status.total_files = std::cmp::max(status.total_files, total);
+                    }
                 }
             }
             Ok(success_serialize(&status))
@@ -328,7 +343,7 @@ mod tests {
                 .await
                 .unwrap();
             if let rmcp::model::RawContent::Text(t) = &res.content[0].raw {
-                if t.text.contains("completed") {
+                if t.text.contains("completed") || t.text.contains("embedding_pending") {
                     break;
                 }
             }

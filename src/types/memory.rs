@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::{Datetime, Thing};
 
+use super::EmbeddingState;
+
 fn default_memory_type() -> MemoryType {
     MemoryType::Semantic
 }
@@ -13,11 +15,16 @@ fn default_datetime() -> Datetime {
     Datetime::default()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+fn default_content() -> String {
+    String::new()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Memory {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
 
+    #[serde(default = "default_content")]
     pub content: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,6 +56,12 @@ pub struct Memory {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invalidation_reason: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub content_hash: Option<String>,
+
+    #[serde(default)]
+    pub embedding_state: EmbeddingState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -83,6 +96,15 @@ pub struct MemoryUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding: Option<Vec<f32>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_state: Option<EmbeddingState>,
 }
 
 impl Memory {
@@ -101,6 +123,8 @@ impl Memory {
             valid_until: None,
             importance_score: 1.0,
             invalidation_reason: None,
+            content_hash: None,
+            embedding_state: EmbeddingState::default(),
         }
     }
 
