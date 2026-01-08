@@ -10,9 +10,12 @@ use crate::Result;
 
 use super::chunker::chunk_file;
 use super::parser::CodeParser;
+use super::relations::{create_symbol_relations, RelationStats};
 use super::scanner::scan_directory;
+use super::symbol_index::SymbolIndex;
 
 use crate::embedding::{EmbeddingRequest, EmbeddingTarget};
+use crate::types::symbol::CodeReference;
 
 pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<IndexStatus> {
     let project_id = project_path
@@ -41,6 +44,9 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
     let batch_size = 20;
     let mut chunk_buffer = Vec::with_capacity(batch_size);
     let mut symbol_buffer = Vec::with_capacity(batch_size);
+    let mut symbol_index = SymbolIndex::new();
+    let mut relation_buffer: Vec<CodeReference> = Vec::new();
+    let mut total_relation_stats = RelationStats::default();
 
     for file_path in &files {
         let content = match fs::read_to_string(file_path).await {
@@ -59,6 +65,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
 
             if chunk_buffer.len() >= batch_size {
                 let batch = std::mem::take(&mut chunk_buffer);
+                let _permit = state.db_semaphore.acquire().await;
                 if let Ok(results) = state.storage.create_code_chunks_batch(batch).await {
                     for (id, chunk) in results {
                         let _ = state
@@ -82,12 +89,18 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
             tracing::debug!("File {:?}: found {} symbols", file_path, symbols.len());
         }
 
+        // Add symbols to in-memory index FIRST (for relation resolution)
+        for symbol in &symbols {
+            symbol_index.add(symbol);
+        }
+
         for symbol in symbols {
             symbol_buffer.push(symbol);
             status.total_symbols += 1;
 
             if symbol_buffer.len() >= batch_size {
                 let batch = std::mem::take(&mut symbol_buffer);
+                let _permit = state.db_semaphore.acquire().await;
                 // 1. Insert batch to get IDs
                 if let Ok(ids) = state.storage.create_code_symbols_batch(batch.clone()).await {
                     // 2. Queue for async embedding
@@ -105,27 +118,26 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
                         }
                     }
                 }
+
+                // 3. Flush pending relations after symbols are in DB
+                if !relation_buffer.is_empty() {
+                    let refs = std::mem::take(&mut relation_buffer);
+                    let stats = create_symbol_relations(
+                        state.storage.as_ref(),
+                        &project_id,
+                        &refs,
+                        &symbol_index,
+                    )
+                    .await;
+                    total_relation_stats.created += stats.created;
+                    total_relation_stats.failed += stats.failed;
+                    total_relation_stats.unresolved += stats.unresolved;
+                }
             }
         }
 
-        for reference in &references {
-            let relation = crate::types::SymbolRelation::new(
-                surrealdb::sql::Thing::from((
-                    "code_symbols".to_string(),
-                    reference.from_symbol.clone(),
-                )),
-                surrealdb::sql::Thing::from((
-                    "code_symbols".to_string(),
-                    reference.to_symbol.clone(),
-                )),
-                reference.relation_type,
-                reference.file_path.clone(),
-                reference.line,
-            );
-            if let Err(e) = state.storage.create_symbol_relation(relation).await {
-                tracing::debug!("Failed to create symbol relation: {}", e);
-            }
-        }
+        // Buffer references for deferred processing (after symbols are in DB)
+        relation_buffer.extend(references);
 
         status.indexed_files += 1;
         monitor
@@ -140,6 +152,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
     }
 
     if !chunk_buffer.is_empty() {
+        let _permit = state.db_semaphore.acquire().await;
         if let Ok(results) = state.storage.create_code_chunks_batch(chunk_buffer).await {
             for (id, chunk) in results {
                 let _ = state
@@ -157,6 +170,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
 
     if !symbol_buffer.is_empty() {
         let batch = symbol_buffer;
+        let _permit = state.db_semaphore.acquire().await;
         let ids = state
             .storage
             .create_code_symbols_batch(batch.clone())
@@ -175,6 +189,30 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
                     .await;
             }
         }
+    }
+
+    // Final flush of remaining relations
+    if !relation_buffer.is_empty() {
+        let stats = create_symbol_relations(
+            state.storage.as_ref(),
+            &project_id,
+            &relation_buffer,
+            &symbol_index,
+        )
+        .await;
+        total_relation_stats.created += stats.created;
+        total_relation_stats.failed += stats.failed;
+        total_relation_stats.unresolved += stats.unresolved;
+    }
+
+    // Log relation stats
+    if total_relation_stats.created > 0 || total_relation_stats.failed > 0 {
+        tracing::info!(
+            created = total_relation_stats.created,
+            failed = total_relation_stats.failed,
+            unresolved = total_relation_stats.unresolved,
+            "Symbol relations indexed"
+        );
     }
 
     status.status = IndexState::EmbeddingPending;
@@ -254,6 +292,7 @@ pub async fn incremental_index(
         // 1. Chunks - async via queue (consistent with index_project)
         let chunks = super::chunker::chunk_file(&path, &content, project_id);
 
+        let _permit = state.db_semaphore.acquire().await;
         if let Ok(results) = state.storage.create_code_chunks_batch(chunks).await {
             for (id, chunk) in results {
                 let _ = state
@@ -271,6 +310,7 @@ pub async fn incremental_index(
         // 2. Symbols
         let (symbols, references) = CodeParser::parse_file(&path, &content, project_id);
         if !symbols.is_empty() {
+            let _permit = state.db_semaphore.acquire().await;
             let created_ids = match state
                 .storage
                 .create_code_symbols_batch(symbols.clone())
@@ -298,23 +338,17 @@ pub async fn incremental_index(
             }
         }
 
-        for reference in &references {
-            let relation = crate::types::SymbolRelation::new(
-                surrealdb::sql::Thing::from((
-                    "code_symbols".to_string(),
-                    reference.from_symbol.clone(),
-                )),
-                surrealdb::sql::Thing::from((
-                    "code_symbols".to_string(),
-                    reference.to_symbol.clone(),
-                )),
-                reference.relation_type,
-                reference.file_path.clone(),
-                reference.line,
-            );
-            if let Err(e) = state.storage.create_symbol_relation(relation).await {
-                tracing::debug!("Failed to create symbol relation: {}", e);
-            }
+        // Create relations using the proper helper with symbol index
+        if !references.is_empty() {
+            let mut symbol_index = SymbolIndex::new();
+            symbol_index.add_batch(&symbols);
+            let _stats = create_symbol_relations(
+                state.storage.as_ref(),
+                project_id,
+                &references,
+                &symbol_index,
+            )
+            .await;
         }
 
         updated += 1;

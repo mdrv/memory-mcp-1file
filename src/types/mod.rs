@@ -3,6 +3,7 @@ pub mod embedding_state;
 pub mod entity;
 pub mod error;
 pub mod memory;
+pub mod safe_thing;
 pub mod search;
 pub mod symbol;
 pub mod thing_id;

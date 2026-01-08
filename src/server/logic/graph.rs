@@ -10,7 +10,7 @@ use crate::server::params::{
     CreateEntityParams, CreateRelationParams, DetectCommunitiesParams, GetRelatedParams,
 };
 use crate::storage::StorageBackend;
-use crate::types::{Direction, Entity, Relation};
+use crate::types::{Direction, Entity, Relation, ThingId};
 
 use super::{error_response, strip_entity_embeddings, success_json};
 
@@ -46,13 +46,28 @@ pub async fn create_relation(
     state: &Arc<AppState>,
     params: CreateRelationParams,
 ) -> anyhow::Result<CallToolResult> {
+    // Validate entity IDs to prevent SQL injection and Thing::from panics
+    let from_id = match ThingId::new("entities", &params.from_entity) {
+        Ok(id) => id,
+        Err(e) => {
+            return Ok(error_response(anyhow::anyhow!(
+                "Invalid from_entity: {}",
+                e
+            )))
+        }
+    };
+    let to_id = match ThingId::new("entities", &params.to_entity) {
+        Ok(id) => id,
+        Err(e) => return Ok(error_response(anyhow::anyhow!("Invalid to_entity: {}", e))),
+    };
+
     let relation = Relation {
         id: None,
         from_entity: surrealdb::sql::Thing::from((
             "entities".to_string(),
-            params.from_entity.clone(),
+            from_id.id().to_string(),
         )),
-        to_entity: surrealdb::sql::Thing::from(("entities".to_string(), params.to_entity.clone())),
+        to_entity: surrealdb::sql::Thing::from(("entities".to_string(), to_id.id().to_string())),
         relation_type: params.relation_type,
         weight: params.weight.unwrap_or(1.0).clamp(0.0, 1.0),
         valid_from: surrealdb::sql::Datetime::default(),

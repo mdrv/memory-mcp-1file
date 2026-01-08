@@ -121,10 +121,43 @@ impl CodeSymbol {
     }
 }
 
+/// Reference to a symbol with full context for Thing creation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SymbolRef {
+    pub name: String,
+    pub file_path: String,
+    pub line: u32,
+}
+
+impl SymbolRef {
+    pub fn new(name: String, file_path: String, line: u32) -> Self {
+        Self {
+            name,
+            file_path,
+            line,
+        }
+    }
+
+    /// Create SymbolRef from an existing CodeSymbol
+    pub fn from_symbol(symbol: &CodeSymbol) -> Self {
+        Self {
+            name: symbol.name.clone(),
+            file_path: symbol.file_path.clone(),
+            line: symbol.start_line,
+        }
+    }
+
+    /// Convert to SurrealDB Thing for relation creation
+    pub fn to_thing(&self, project_id: &str) -> surrealdb::sql::Thing {
+        crate::types::safe_thing::symbol_thing(project_id, &self.file_path, &self.name, self.line)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeReference {
     pub name: String,
     pub from_symbol: String,
+    pub from_symbol_line: u32,
     pub to_symbol: String,
     pub relation_type: CodeRelationType,
     pub file_path: String,
@@ -136,6 +169,7 @@ impl CodeReference {
     pub fn new(
         name: String,
         from_symbol: String,
+        from_symbol_line: u32,
         to_symbol: String,
         relation_type: CodeRelationType,
         file_path: String,
@@ -145,6 +179,7 @@ impl CodeReference {
         Self {
             name,
             from_symbol,
+            from_symbol_line,
             to_symbol,
             relation_type,
             file_path,
@@ -169,6 +204,7 @@ pub struct SymbolRelation {
 
     pub file_path: String,
     pub line_number: u32,
+    pub project_id: String,
 
     #[serde(default = "default_datetime")]
     pub created_at: Datetime,
@@ -181,6 +217,7 @@ impl SymbolRelation {
         relation_type: CodeRelationType,
         file_path: String,
         line_number: u32,
+        project_id: String,
     ) -> Self {
         Self {
             id: None,
@@ -189,6 +226,7 @@ impl SymbolRelation {
             relation_type,
             file_path,
             line_number,
+            project_id,
             created_at: Datetime::default(),
         }
     }

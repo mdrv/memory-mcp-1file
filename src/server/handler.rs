@@ -244,7 +244,7 @@ impl MemoryMcpServer {
     }
 
     #[tool(
-        description = "List all indexed projects. Projects are persistent and loaded on startup. Check this first."
+        description = "List all indexed projects. Projects are persistent, auto-indexed on startup, and watched for changes. Check this first."
     )]
     async fn list_projects(
         &self,
@@ -301,6 +301,18 @@ impl MemoryMcpServer {
         params: Parameters<GetRelatedSymbolsParams>,
     ) -> Result<CallToolResult, ErrorData> {
         logic::code::get_related_symbols(&self.state, params.0)
+            .await
+            .map_err(to_rpc_error)
+    }
+
+    #[tool(
+        description = "Get detailed statistics for an indexed project including symbol/chunk counts and embedding progress."
+    )]
+    async fn get_project_stats(
+        &self,
+        params: Parameters<GetProjectStatsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        logic::code::get_project_stats(&self.state, params.0)
             .await
             .map_err(to_rpc_error)
     }

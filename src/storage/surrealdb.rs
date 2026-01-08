@@ -158,11 +158,11 @@ impl GraphTraversalStorage for SurrealStorage {
             return Ok((vec![], vec![]));
         }
 
-        let things: Vec<String> = entity_ids
+        let things: Vec<surrealdb::sql::Thing> = entity_ids
             .iter()
             .map(|id| {
                 use crate::types::ThingId;
-                ThingId::new("entities", id).map(|t| t.to_string())
+                ThingId::new("entities", id).map(|t| t.to_thing())
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -457,8 +457,7 @@ impl StorageBackend for SurrealStorage {
             .map(|id| ThingId::new("entities", id))
             .collect::<anyhow::Result<Vec<_>>>()?;
 
-        // Use String instead of &str for 'static lifetime required by SurrealDB .bind()
-        let ids: Vec<String> = validated_ids.iter().map(|t| t.to_string()).collect();
+        let ids: Vec<surrealdb::sql::Thing> = validated_ids.iter().map(|t| t.to_thing()).collect();
 
         let sql = "SELECT * FROM relations WHERE in IN $ids AND out IN $ids";
         let mut response = self.db.query(sql).bind(("ids", ids.clone())).await?;
@@ -727,12 +726,46 @@ impl StorageBackend for SurrealStorage {
         if symbols.is_empty() {
             return Ok(vec![]);
         }
-        let created: Vec<CodeSymbol> = self.db.insert("code_symbols").content(symbols).await?;
 
-        let ids = created
-            .into_iter()
-            .filter_map(|s| s.id.map(|t| t.to_string()))
-            .collect();
+        // Prepare symbols with pre-generated keys for batch UPSERT
+        let mut ids = Vec::with_capacity(symbols.len());
+        let mut prepared = Vec::with_capacity(symbols.len());
+
+        for symbol in &symbols {
+            let key = symbol.unique_key();
+            ids.push(format!("code_symbols:{}", key));
+
+            // Prepare data for SurQL FOR loop
+            prepared.push(serde_json::json!({
+                "key": key,
+                "name": symbol.name,
+                "symbol_type": symbol.symbol_type,
+                "file_path": symbol.file_path,
+                "start_line": symbol.start_line,
+                "end_line": symbol.end_line,
+                "project_id": symbol.project_id,
+                "signature": symbol.signature,
+                "indexed_at": surrealdb::sql::Datetime::default()
+            }));
+        }
+
+        // Single query with FOR loop - reduces N calls to 1
+        let sql = r#"
+            FOR $s IN $symbols {
+                UPSERT type::record('code_symbols', $s.key) CONTENT {
+                    name: $s.name,
+                    symbol_type: $s.symbol_type,
+                    file_path: $s.file_path,
+                    start_line: $s.start_line,
+                    end_line: $s.end_line,
+                    project_id: $s.project_id,
+                    signature: $s.signature,
+                    indexed_at: $s.indexed_at
+                };
+            };
+        "#;
+
+        self.db.query(sql).bind(("symbols", prepared)).await?;
 
         Ok(ids)
     }
@@ -756,6 +789,46 @@ impl StorageBackend for SurrealStorage {
             .bind(("embedding", embedding))
             .bind(("id", id.to_string()))
             .await?;
+        Ok(())
+    }
+
+    async fn batch_update_symbol_embeddings(&self, updates: &[(String, Vec<f32>)]) -> Result<()> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+
+        let sql = r#"
+            FOR $u IN $updates {
+                UPDATE type::thing($u.id) SET embedding = $u.embedding;
+            };
+        "#;
+
+        let data: Vec<_> = updates
+            .iter()
+            .map(|(id, emb)| serde_json::json!({"id": id, "embedding": emb}))
+            .collect();
+
+        self.db.query(sql).bind(("updates", data)).await?;
+        Ok(())
+    }
+
+    async fn batch_update_chunk_embeddings(&self, updates: &[(String, Vec<f32>)]) -> Result<()> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+
+        let sql = r#"
+            FOR $u IN $updates {
+                UPDATE type::thing($u.id) SET embedding = $u.embedding;
+            };
+        "#;
+
+        let data: Vec<_> = updates
+            .iter()
+            .map(|(id, emb)| serde_json::json!({"id": id, "embedding": emb}))
+            .collect();
+
+        self.db.query(sql).bind(("updates", data)).await?;
         Ok(())
     }
 
@@ -812,18 +885,15 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn get_symbol_callees(&self, symbol_id: &str) -> Result<Vec<CodeSymbol>> {
+        let thing = parse_thing(symbol_id)?;
         let sql = r#"
             SELECT * FROM code_symbols 
             WHERE id IN (
                 SELECT VALUE out FROM symbol_relation 
-                WHERE in = type::thing($id) AND relation_type = 'calls'
+                WHERE in = $thing AND relation_type = 'calls'
             )
         "#;
-        let mut response = self
-            .db
-            .query(sql)
-            .bind(("id", symbol_id.to_string()))
-            .await?;
+        let mut response = self.db.query(sql).bind(("thing", thing)).await?;
         let result: Vec<CodeSymbol> = response.take(0)?;
         Ok(result)
     }
@@ -839,7 +909,7 @@ impl StorageBackend for SurrealStorage {
         let _depth = depth.clamp(1, 3);
 
         let symbol_thing = if !symbol_id.contains(':') {
-            ThingId::new("code_symbols", symbol_id)?.to_string()
+            ThingId::new("code_symbols", symbol_id)?.to_thing()
         } else {
             let parts: Vec<&str> = symbol_id.splitn(2, ':').collect();
             if parts.len() != 2 {
@@ -848,19 +918,13 @@ impl StorageBackend for SurrealStorage {
                     symbol_id
                 )));
             }
-            ThingId::new(parts[0], parts[1])?.to_string()
+            ThingId::new(parts[0], parts[1])?.to_thing()
         };
 
         let sql = match direction {
-            Direction::Outgoing => {
-                "SELECT * FROM symbol_relation WHERE `in` = type::thing($id)"
-            }
-            Direction::Incoming => {
-                "SELECT * FROM symbol_relation WHERE `out` = type::thing($id)"
-            }
-            Direction::Both => {
-                "SELECT * FROM symbol_relation WHERE `in` = type::thing($id) OR `out` = type::thing($id)"
-            }
+            Direction::Outgoing => "SELECT * FROM symbol_relation WHERE `in` = $id",
+            Direction::Incoming => "SELECT * FROM symbol_relation WHERE `out` = $id",
+            Direction::Both => "SELECT * FROM symbol_relation WHERE `in` = $id OR `out` = $id",
         };
 
         let mut response = self
@@ -883,11 +947,12 @@ impl StorageBackend for SurrealStorage {
                 Direction::Both => {
                     let from_str = rel.from_symbol.to_string();
                     let to_str = rel.to_symbol.to_string();
+                    let symbol_thing_str = symbol_thing.to_string();
 
-                    if from_str != symbol_thing {
+                    if from_str != symbol_thing_str {
                         symbol_ids.push(from_str);
                     }
-                    if to_str != symbol_thing {
+                    if to_str != symbol_thing_str {
                         symbol_ids.push(to_str);
                     }
                 }
@@ -921,21 +986,208 @@ impl StorageBackend for SurrealStorage {
         &self,
         query: &str,
         project_id: Option<&str>,
-    ) -> Result<Vec<CodeSymbol>> {
-        let mut sql = "SELECT * FROM code_symbols WHERE name ~ $query".to_string();
-        if project_id.is_some() {
-            sql.push_str(" AND project_id = $project_id");
-        }
-        sql.push_str(" LIMIT 20");
+        limit: usize,
+        offset: usize,
+        symbol_type: Option<&str>,
+        path_prefix: Option<&str>,
+    ) -> Result<(Vec<CodeSymbol>, u32)> {
+        let limit = limit.clamp(1, 100);
 
-        let mut query_builder = self.db.query(sql).bind(("query", query.to_string()));
+        let mut conditions = vec!["(name ~ $query OR signature ~ $query)".to_string()];
+
+        if project_id.is_some() {
+            conditions.push("project_id = $project_id".to_string());
+        }
+        if symbol_type.is_some() {
+            conditions.push("symbol_type = $symbol_type".to_string());
+        }
+        if path_prefix.is_some() {
+            conditions.push("string::starts_with(file_path, $path_prefix)".to_string());
+        }
+
+        let where_clause = conditions.join(" AND ");
+        let sql = format!(
+            "SELECT * FROM code_symbols WHERE {} ORDER BY name ASC LIMIT {} START {}",
+            where_clause, limit, offset
+        );
+
+        let count_sql = format!(
+            "SELECT count() FROM code_symbols WHERE {} GROUP ALL",
+            where_clause
+        );
+
+        let mut query_builder = self.db.query(&sql).bind(("query", query.to_string()));
+        let mut count_builder = self.db.query(&count_sql).bind(("query", query.to_string()));
+
         if let Some(pid) = project_id {
             query_builder = query_builder.bind(("project_id", pid.to_string()));
+            count_builder = count_builder.bind(("project_id", pid.to_string()));
+        }
+        if let Some(st) = symbol_type {
+            query_builder = query_builder.bind(("symbol_type", st.to_string()));
+            count_builder = count_builder.bind(("symbol_type", st.to_string()));
+        }
+        if let Some(pp) = path_prefix {
+            query_builder = query_builder.bind(("path_prefix", pp.to_string()));
+            count_builder = count_builder.bind(("path_prefix", pp.to_string()));
         }
 
         let mut response = query_builder.await?;
         let symbols: Vec<CodeSymbol> = response.take(0)?;
-        Ok(symbols)
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u32,
+        }
+
+        let mut count_response = count_builder.await?;
+        let total: u32 = count_response
+            .take::<Option<CountResult>>(0)?
+            .map(|r| r.count)
+            .unwrap_or(0);
+
+        Ok((symbols, total))
+    }
+
+    async fn count_symbols(&self, project_id: &str) -> Result<u32> {
+        let sql = "SELECT count() FROM code_symbols WHERE project_id = $project_id GROUP ALL";
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .await?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u32,
+        }
+
+        let result: Option<CountResult> = response.take(0)?;
+        Ok(result.map(|r| r.count).unwrap_or(0))
+    }
+
+    async fn count_chunks(&self, project_id: &str) -> Result<u32> {
+        let sql = "SELECT count() FROM code_chunks WHERE project_id = $project_id GROUP ALL";
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .await?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u32,
+        }
+
+        let result: Option<CountResult> = response.take(0)?;
+        Ok(result.map(|r| r.count).unwrap_or(0))
+    }
+
+    async fn count_embedded_symbols(&self, project_id: &str) -> Result<u32> {
+        let sql = "SELECT count() FROM code_symbols WHERE project_id = $project_id AND embedding IS NOT NULL GROUP ALL";
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .await?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u32,
+        }
+
+        let result: Option<CountResult> = response.take(0)?;
+        Ok(result.map(|r| r.count).unwrap_or(0))
+    }
+
+    async fn count_embedded_chunks(&self, project_id: &str) -> Result<u32> {
+        let sql = "SELECT count() FROM code_chunks WHERE project_id = $project_id AND embedding IS NOT NULL GROUP ALL";
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .await?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u32,
+        }
+
+        let result: Option<CountResult> = response.take(0)?;
+        Ok(result.map(|r| r.count).unwrap_or(0))
+    }
+
+    async fn count_symbol_relations(&self, project_id: &str) -> Result<u32> {
+        let sql = r#"
+            SELECT count() FROM symbol_relation 
+            WHERE project_id = $project_id 
+            GROUP ALL
+        "#;
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .await?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u32,
+        }
+
+        let result: Option<CountResult> = response.take(0)?;
+        Ok(result.map(|r| r.count).unwrap_or(0))
+    }
+
+    async fn find_symbol_by_name(
+        &self,
+        project_id: &str,
+        name: &str,
+    ) -> Result<Option<CodeSymbol>> {
+        let sql = r#"
+            SELECT * FROM code_symbols 
+            WHERE project_id = $project_id AND name = $name 
+            LIMIT 1
+        "#;
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .bind(("name", name.to_string()))
+            .await?;
+
+        let symbols: Vec<CodeSymbol> = response.take(0)?;
+        Ok(symbols.into_iter().next())
+    }
+
+    async fn find_symbol_by_name_with_context(
+        &self,
+        project_id: &str,
+        name: &str,
+        prefer_file: Option<&str>,
+    ) -> Result<Option<CodeSymbol>> {
+        // Try same file first for better resolution
+        if let Some(file) = prefer_file {
+            let sql = r#"
+            SELECT * FROM code_symbols 
+            WHERE project_id = $project_id AND name = $name AND file_path = $file
+            LIMIT 1
+        "#;
+            let mut response = self
+                .db
+                .query(sql)
+                .bind(("project_id", project_id.to_string()))
+                .bind(("name", name.to_string()))
+                .bind(("file", file.to_string()))
+                .await?;
+
+            let symbols: Vec<CodeSymbol> = response.take(0)?;
+            if let Some(sym) = symbols.into_iter().next() {
+                return Ok(Some(sym));
+            }
+        }
+
+        // Fallback to any file in project
+        self.find_symbol_by_name(project_id, name).await
     }
 
     async fn health_check(&self) -> Result<bool> {
@@ -971,7 +1223,7 @@ impl StorageBackend for SurrealStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Entity, Memory, MemoryType, MemoryUpdate, Relation};
+    use crate::types::{ChunkType, Entity, Language, Memory, MemoryType, MemoryUpdate, Relation};
     use surrealdb::sql::{Datetime, Thing};
     use tempfile::tempdir;
 
@@ -1174,6 +1426,7 @@ mod tests {
             CodeRelationType::Calls,
             "main.rs".to_string(),
             3,
+            "test_project".to_string(),
         );
         storage.create_symbol_relation(relation).await.unwrap();
 
@@ -1290,5 +1543,49 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 50);
+    }
+
+    #[tokio::test]
+    async fn test_batch_update_embeddings() {
+        let (storage, _tmp) = setup_test_db().await;
+
+        let chunks: Vec<CodeChunk> = (0..5)
+            .map(|i| CodeChunk {
+                id: None,
+                file_path: format!("src/embed_{}.rs", i),
+                content: format!("fn embed_{}() {{}}", i),
+                language: Language::Rust,
+                start_line: 1,
+                end_line: 3,
+                chunk_type: ChunkType::Function,
+                name: Some(format!("embed_{}", i)),
+                embedding: None,
+                content_hash: format!("embed_hash_{}", i),
+                project_id: Some("embed_project".to_string()),
+                indexed_at: Datetime::default(),
+            })
+            .collect();
+
+        let results = storage.create_code_chunks_batch(chunks).await.unwrap();
+        assert_eq!(results.len(), 5);
+
+        let chunk_ids: Vec<String> = results.iter().map(|(id, _)| id.clone()).collect();
+
+        let updates: Vec<(String, Vec<f32>)> = chunk_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), vec![i as f32 * 0.1; 768]))
+            .collect();
+
+        storage
+            .batch_update_chunk_embeddings(&updates)
+            .await
+            .unwrap();
+
+        let search_results = storage
+            .bm25_search_code("embed", Some("embed_project"), 10)
+            .await
+            .unwrap();
+        assert_eq!(search_results.len(), 5);
     }
 }

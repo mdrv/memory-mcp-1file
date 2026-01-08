@@ -66,6 +66,7 @@ impl TestContext {
             embedding_store,
             embedding_queue: adaptive_queue,
             progress: crate::config::IndexProgressTracker::new(),
+            db_semaphore: Arc::new(tokio::sync::Semaphore::new(10)),
         });
 
         Self {

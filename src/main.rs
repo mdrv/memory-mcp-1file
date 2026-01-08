@@ -108,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
         embedding_store: embedding_store.clone(),
         embedding_queue: adaptive_queue,
         progress: memory_mcp::config::IndexProgressTracker::new(),
+        db_semaphore: Arc::new(tokio::sync::Semaphore::new(10)),
     });
 
     let worker = EmbeddingWorker::new(
@@ -117,6 +118,9 @@ async fn main() -> anyhow::Result<()> {
         state.clone(),
     );
     tokio::spawn(worker.run());
+
+    let monitor_state = state.clone();
+    tokio::spawn(memory_mcp::embedding::run_completion_monitor(monitor_state));
 
     let server = MemoryMcpServer::new(state.clone());
 

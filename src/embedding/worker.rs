@@ -154,6 +154,10 @@ impl EmbeddingWorker {
             }
         }
 
+        // Collect updates for batch processing instead of spawning per item
+        let mut symbol_updates: Vec<(String, Vec<f32>)> = Vec::new();
+        let mut chunk_updates: Vec<(String, Vec<f32>)> = Vec::new();
+
         for (req, emb_opt) in batch.drain(..).zip(final_embeddings) {
             if let Some(emb) = emb_opt {
                 if let Some(tx) = req.responder {
@@ -161,29 +165,40 @@ impl EmbeddingWorker {
                 }
 
                 if let Some(target) = req.target {
-                    let storage = self.storage.clone();
-                    let embedding = emb;
-                    tokio::spawn(async move {
-                        use crate::storage::StorageBackend;
-                        match target {
-                            EmbeddingTarget::Symbol(id) => {
-                                if let Err(e) =
-                                    storage.update_symbol_embedding(&id, embedding).await
-                                {
-                                    tracing::warn!("Failed to update symbol embedding: {}", e);
-                                }
-                            }
-                            EmbeddingTarget::Chunk(id) => {
-                                if let Err(e) = storage.update_chunk_embedding(&id, embedding).await
-                                {
-                                    tracing::warn!("Failed to update chunk embedding: {}", e);
-                                }
-                            }
+                    match target {
+                        EmbeddingTarget::Symbol(id) => {
+                            symbol_updates.push((id, emb));
                         }
-                    });
+                        EmbeddingTarget::Chunk(id) => {
+                            chunk_updates.push((id, emb));
+                        }
+                    }
                 }
             } else if let Some(tx) = req.responder {
                 let _ = tx.send(vec![]);
+            }
+        }
+
+        // Batch update instead of individual spawns
+        use crate::storage::StorageBackend;
+
+        if !symbol_updates.is_empty() {
+            if let Err(e) = self
+                .storage
+                .batch_update_symbol_embeddings(&symbol_updates)
+                .await
+            {
+                tracing::warn!(count = symbol_updates.len(), error = %e, "Batch symbol embedding update failed");
+            }
+        }
+
+        if !chunk_updates.is_empty() {
+            if let Err(e) = self
+                .storage
+                .batch_update_chunk_embeddings(&chunk_updates)
+                .await
+            {
+                tracing::warn!(count = chunk_updates.len(), error = %e, "Batch chunk embedding update failed");
             }
         }
 
@@ -229,6 +244,7 @@ mod tests {
                 embedding_store: store,
                 embedding_queue: adaptive_queue,
                 progress: crate::config::IndexProgressTracker::new(),
+                db_semaphore: Arc::new(tokio::sync::Semaphore::new(10)),
             }),
         );
     }

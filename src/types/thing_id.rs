@@ -96,6 +96,45 @@ impl ThingId {
             && s.chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     }
+
+    /// Convert to native SurrealDB Thing for query binding.
+    ///
+    /// This is the primary method for creating type-safe bindings
+    /// that work correctly with SurrealDB's Record Link type matching.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let thing_id = ThingId::new("entities", "abc123")?;
+    /// let thing = thing_id.to_thing();
+    /// db.query("SELECT * FROM relations WHERE `in` = $id")
+    ///     .bind(("id", thing))
+    ///     .await?;
+    /// ```
+    pub fn to_thing(&self) -> surrealdb::sql::Thing {
+        surrealdb::sql::Thing::from((self.table().to_string(), self.id().to_string()))
+    }
+}
+
+/// Batch conversion helper for IN queries.
+///
+/// Converts a slice of string IDs to a Vec of SurrealDB Things
+/// for use with `WHERE x IN $ids` queries.
+///
+/// # Arguments
+/// * `table` - The SurrealDB table name
+/// * `ids` - Slice of ID strings
+///
+/// # Example
+/// ```ignore
+/// let things = things_from_ids("entities", &["a", "b", "c"])?;
+/// db.query("SELECT * FROM relations WHERE `in` IN $ids")
+///     .bind(("ids", things))
+///     .await?;
+/// ```
+pub fn things_from_ids(table: &str, ids: &[String]) -> Result<Vec<surrealdb::sql::Thing>> {
+    ids.iter()
+        .map(|id| ThingId::new(table, id).map(|t| t.to_thing()))
+        .collect()
 }
 
 impl fmt::Display for ThingId {

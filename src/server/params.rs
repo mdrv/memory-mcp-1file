@@ -170,6 +170,14 @@ pub struct SearchSymbolsParams {
     pub query: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path_prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -189,4 +197,9 @@ pub struct GetRelatedSymbolsParams {
     pub depth: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direction: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GetProjectStatsParams {
+    pub project_id: String,
 }

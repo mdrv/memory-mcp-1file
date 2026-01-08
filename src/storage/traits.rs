@@ -180,6 +180,12 @@ pub trait StorageBackend: Send + Sync {
 
     async fn update_chunk_embedding(&self, id: &str, embedding: Vec<f32>) -> Result<()>;
 
+    /// Batch update symbol embeddings - more efficient than individual updates
+    async fn batch_update_symbol_embeddings(&self, updates: &[(String, Vec<f32>)]) -> Result<()>;
+
+    /// Batch update chunk embeddings - more efficient than individual updates
+    async fn batch_update_chunk_embeddings(&self, updates: &[(String, Vec<f32>)]) -> Result<()>;
+
     /// Create a relation between code symbols
     async fn create_symbol_relation(&self, relation: SymbolRelation) -> Result<String>;
 
@@ -208,7 +214,45 @@ pub trait StorageBackend: Send + Sync {
         &self,
         query: &str,
         project_id: Option<&str>,
-    ) -> Result<Vec<CodeSymbol>>;
+        limit: usize,
+        offset: usize,
+        symbol_type: Option<&str>,
+        path_prefix: Option<&str>,
+    ) -> Result<(Vec<CodeSymbol>, u32)>;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Statistics & Counts
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Count total symbols for a project
+    async fn count_symbols(&self, project_id: &str) -> Result<u32>;
+
+    /// Count total chunks for a project
+    async fn count_chunks(&self, project_id: &str) -> Result<u32>;
+
+    /// Count symbols that have embeddings (embedding IS NOT NULL)
+    async fn count_embedded_symbols(&self, project_id: &str) -> Result<u32>;
+
+    /// Count chunks that have embeddings (embedding IS NOT NULL)
+    async fn count_embedded_chunks(&self, project_id: &str) -> Result<u32>;
+
+    /// Count symbol relations for a project (useful for debugging graph)
+    async fn count_symbol_relations(&self, project_id: &str) -> Result<u32>;
+
+    /// Find a symbol by name across the project (for cross-file resolution)
+    async fn find_symbol_by_name(
+        &self,
+        project_id: &str,
+        name: &str,
+    ) -> Result<Option<crate::types::symbol::CodeSymbol>>;
+
+    /// Find symbol by name with file preference for better resolution
+    async fn find_symbol_by_name_with_context(
+        &self,
+        project_id: &str,
+        name: &str,
+        prefer_file: Option<&str>,
+    ) -> Result<Option<CodeSymbol>>;
 
     // ─────────────────────────────────────────────────────────────────────────
     // System

@@ -72,12 +72,15 @@ impl Extractor {
 
                 if let Ok(name) = node.utf8_text(content.as_bytes()) {
                     let symbol_type = self.support.map_symbol_type(capture_name);
-                    let start_line = node.start_position().row as u32 + 1;
-                    let end_line = node.end_position().row as u32 + 1;
 
-                    let signature = node
-                        .parent()
-                        .and_then(|p| self.support.extract_signature(&p, content.as_bytes()));
+                    // node is the identifier, parent is the full definition (function_item, struct_item, etc.)
+                    let definition_node = node.parent().unwrap_or(node);
+                    let start_line = definition_node.start_position().row as u32 + 1;
+                    let end_line = definition_node.end_position().row as u32 + 1;
+
+                    let signature = self
+                        .support
+                        .extract_signature(&definition_node, content.as_bytes());
 
                     let mut symbol = CodeSymbol::new(
                         name.to_string(),
@@ -131,17 +134,18 @@ impl Extractor {
                     let column = node.start_position().column as u32;
 
                     // Find which symbol contains this reference
-                    let from_symbol = symbols
+                    let (from_symbol, from_symbol_line) = symbols
                         .iter()
                         .find(|s| start_line >= s.start_line && start_line <= s.end_line)
-                        .map(|s| s.name.clone())
-                        .unwrap_or_else(|| "global".to_string());
+                        .map(|s| (s.name.clone(), s.start_line))
+                        .unwrap_or_else(|| ("global".to_string(), 0));
 
                     let relation_type = self.support.map_relation_type(capture_name);
 
                     references.push(CodeReference::new(
                         name.to_string(),
                         from_symbol,
+                        from_symbol_line,
                         name.to_string(), // to_symbol is the same as name for now
                         relation_type,
                         file_path.to_string(),

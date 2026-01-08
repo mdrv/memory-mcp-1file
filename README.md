@@ -257,6 +257,37 @@ You can switch the embedding model using the `--model` arg or `EMBEDDING_MODEL` 
 >
 > Switching between models with the same dimensions (e.g., `e5_multi` <-> `nomic`) is theoretically possible but not recommended as semantic spaces differ.
 
+## 🔮 Future Roadmap (Research & Ideas)
+
+Based on analysis of advanced memory systems like [Hindsight](https://hindsight.vectorize.io/) (see their documentation for details on these mechanisms), we are exploring these "Cognitive Architecture" features for future releases:
+
+### 1. Meta-Cognitive Reflection (Consolidation)
+*   **Problem:** Raw memories accumulate noise over time (e.g., 10 separate memories about fixing the same bug).
+*   **Solution:** Implement a `reflect` background process (or tool) that periodicallly scans recent memories to:
+    *   **De-duplicate** redundant entries.
+    *   **Resolve conflicts** (if two memories contradict, keep the newer one or flag for review).
+    *   **Synthesize** low-level facts into high-level "Insights" (e.g., "User prefers Rust over Python" derived from 5 code choices).
+
+### 2. Temporal Decay & "Presence"
+*   **Problem:** Old memories can sometimes drown out current context in semantic search.
+*   **Solution:** Integrate **Time Decay** into the Reciprocal Rank Fusion (RRF) algorithm.
+    *   Give a calculated boost to recent memories for queries implying "current state".
+    *   Allow the agent to prioritize "working memory" over "historical archives" dynamically.
+
+### 3. Namespaced Memory Banks
+*   **Problem:** Running one docker container per project is resource-heavy.
+*   **Solution:** Add support for `namespace` or `project_id` scoping.
+    *   Allows a single server instance to host isolated "Memory Banks" for different projects or agent personas.
+    *   Enables "Switching Context" without restarting the container.
+
+### 4. Epistemic Confidence Scoring
+*   **Problem:** The agent treats a guess the same as a verified fact.
+*   **Solution:** Add a `confidence` score (0.0 - 1.0) to memory schemas.
+    *   Allows storing hypotheses ("I think the bug is in auth.rs", confidence: 0.3).
+    *   Retrieval tools can filter out low-confidence memories when answering factual questions.
+
+---
+
 ## License
 
 MIT

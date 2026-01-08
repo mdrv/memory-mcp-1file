@@ -6,13 +6,12 @@ use serde_json::json;
 use crate::config::AppState;
 use crate::server::params::{
     DeleteProjectParams, GetCalleesParams, GetCallersParams, GetIndexStatusParams,
-    IndexProjectParams, ListProjectsParams, SearchCodeParams, SearchSymbolsParams,
+    GetProjectStatsParams, IndexProjectParams, ListProjectsParams, SearchCodeParams,
+    SearchSymbolsParams,
 };
 use crate::storage::StorageBackend;
 
-use super::{
-    error_response, normalize_limit, strip_symbol_embeddings, success_json, success_serialize,
-};
+use super::{error_response, normalize_limit, strip_symbol_embeddings, success_json};
 
 pub async fn index_project(
     state: &Arc<AppState>,
@@ -159,7 +158,78 @@ pub async fn get_index_status(
                     }
                 }
             }
-            Ok(success_serialize(&status))
+
+            let total_symbols = state
+                .storage
+                .count_symbols(&params.project_id)
+                .await
+                .unwrap_or(0);
+            let total_chunks = state
+                .storage
+                .count_chunks(&params.project_id)
+                .await
+                .unwrap_or(0);
+            let embedded_symbols = state
+                .storage
+                .count_embedded_symbols(&params.project_id)
+                .await
+                .unwrap_or(0);
+            let embedded_chunks = state
+                .storage
+                .count_embedded_chunks(&params.project_id)
+                .await
+                .unwrap_or(0);
+
+            let vector_progress = if total_chunks > 0 {
+                (embedded_chunks as f32 / total_chunks as f32) * 100.0
+            } else {
+                0.0
+            };
+            let graph_progress = if total_symbols > 0 {
+                (embedded_symbols as f32 / total_symbols as f32) * 100.0
+            } else {
+                0.0
+            };
+            let overall_progress = if (total_chunks + total_symbols) > 0 {
+                ((embedded_chunks + embedded_symbols) as f32
+                    / (total_chunks + total_symbols) as f32)
+                    * 100.0
+            } else {
+                0.0
+            };
+
+            Ok(success_json(json!({
+                "project_id": status.project_id,
+                "status": status.status.to_string(),
+                "total_files": status.total_files,
+                "indexed_files": status.indexed_files,
+                "started_at": status.started_at,
+                "completed_at": status.completed_at,
+
+                "parsing": {
+                    "status": if status.indexed_files >= status.total_files { "completed" } else { "in_progress" },
+                    "progress": format!("{}/{}", status.indexed_files, status.total_files)
+                },
+
+                "vector_embeddings": {
+                    "status": if embedded_chunks >= total_chunks && total_chunks > 0 { "completed" } else { "in_progress" },
+                    "total": total_chunks,
+                    "completed": embedded_chunks,
+                    "percent": format!("{:.1}", vector_progress)
+                },
+
+                "graph_embeddings": {
+                    "status": if embedded_symbols >= total_symbols && total_symbols > 0 { "completed" } else { "in_progress" },
+                    "total": total_symbols,
+                    "completed": embedded_symbols,
+                    "percent": format!("{:.1}", graph_progress)
+                },
+
+                "overall_progress": {
+                    "percent": format!("{:.1}", overall_progress),
+                    "is_complete": embedded_chunks >= total_chunks && embedded_symbols >= total_symbols && total_chunks > 0
+                }
+            })))
         }
         Ok(None) => Ok(error_response(format!(
             "Project not found: {}",
@@ -174,10 +244,49 @@ pub async fn list_projects(
     _params: ListProjectsParams,
 ) -> anyhow::Result<CallToolResult> {
     match state.storage.list_projects().await {
-        Ok(projects) => Ok(success_json(json!({
-            "projects": projects,
-            "count": projects.len()
-        }))),
+        Ok(projects) => {
+            let mut enriched = Vec::with_capacity(projects.len());
+
+            for project_id in &projects {
+                let status = state
+                    .storage
+                    .get_index_status(project_id)
+                    .await
+                    .ok()
+                    .flatten();
+                let chunks = state.storage.count_chunks(project_id).await.unwrap_or(0);
+                let symbols = state.storage.count_symbols(project_id).await.unwrap_or(0);
+                let embedded_chunks = state
+                    .storage
+                    .count_embedded_chunks(project_id)
+                    .await
+                    .unwrap_or(0);
+                let embedded_symbols = state
+                    .storage
+                    .count_embedded_symbols(project_id)
+                    .await
+                    .unwrap_or(0);
+
+                let status_str = status
+                    .as_ref()
+                    .map(|s| s.status.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                enriched.push(json!({
+                    "id": project_id,
+                    "status": status_str,
+                    "chunks": chunks,
+                    "symbols": symbols,
+                    "embedded_chunks": embedded_chunks,
+                    "embedded_symbols": embedded_symbols
+                }));
+            }
+
+            Ok(success_json(json!({
+                "projects": enriched,
+                "count": projects.len()
+            })))
+        }
         Err(e) => Ok(error_response(e)),
     }
 }
@@ -210,25 +319,40 @@ pub async fn search_symbols(
     state: &Arc<AppState>,
     params: SearchSymbolsParams,
 ) -> anyhow::Result<CallToolResult> {
+    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let offset = params.offset.unwrap_or(0);
+
     match state
         .storage
-        .search_symbols(&params.query, params.project_id.as_deref())
+        .search_symbols(
+            &params.query,
+            params.project_id.as_deref(),
+            limit,
+            offset,
+            params.symbol_type.as_deref(),
+            params.path_prefix.as_deref(),
+        )
         .await
     {
-        Ok(mut symbols) => {
-            let count_before = symbols.len();
+        Ok((mut symbols, total)) => {
+            let count = symbols.len();
             strip_symbol_embeddings(&mut symbols);
 
-            if let Some(first) = symbols.first() {
-                if first.embedding.is_some() {
-                    tracing::error!("Failed to strip embedding for symbol {}", first.name);
-                }
-            }
+            let has_more = offset + count < total as usize;
 
             Ok(success_json(json!({
                 "results": symbols,
-                "count": count_before,
-                "query": params.query
+                "count": count,
+                "total": total,
+                "offset": offset,
+                "limit": limit,
+                "has_more": has_more,
+                "query": params.query,
+                "filters": {
+                    "project_id": params.project_id,
+                    "symbol_type": params.symbol_type,
+                    "path_prefix": params.path_prefix
+                }
             })))
         }
         Err(e) => Ok(error_response(e)),
@@ -300,6 +424,75 @@ pub async fn get_related_symbols(
     }
 }
 
+pub async fn get_project_stats(
+    state: &Arc<AppState>,
+    params: GetProjectStatsParams,
+) -> anyhow::Result<CallToolResult> {
+    let status = state.storage.get_index_status(&params.project_id).await?;
+
+    if status.is_none() {
+        return Ok(error_response(format!(
+            "Project not found: {}",
+            params.project_id
+        )));
+    }
+
+    let status = status.unwrap();
+
+    let total_symbols = state
+        .storage
+        .count_symbols(&params.project_id)
+        .await
+        .unwrap_or(0);
+    let total_chunks = state
+        .storage
+        .count_chunks(&params.project_id)
+        .await
+        .unwrap_or(0);
+    let embedded_symbols = state
+        .storage
+        .count_embedded_symbols(&params.project_id)
+        .await
+        .unwrap_or(0);
+    let embedded_chunks = state
+        .storage
+        .count_embedded_chunks(&params.project_id)
+        .await
+        .unwrap_or(0);
+
+    let vector_progress = if total_chunks > 0 {
+        (embedded_chunks as f32 / total_chunks as f32) * 100.0
+    } else {
+        0.0
+    };
+    let graph_progress = if total_symbols > 0 {
+        (embedded_symbols as f32 / total_symbols as f32) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(success_json(json!({
+        "project_id": params.project_id,
+        "status": status.status.to_string(),
+        "files": {
+            "total": status.total_files,
+            "indexed": status.indexed_files
+        },
+        "chunks": {
+            "total": total_chunks,
+            "embedded": embedded_chunks,
+            "progress_percent": format!("{:.1}", vector_progress)
+        },
+        "symbols": {
+            "total": total_symbols,
+            "embedded": embedded_symbols,
+            "progress_percent": format!("{:.1}", graph_progress)
+        },
+        "started_at": status.started_at,
+        "completed_at": status.completed_at
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,7 +502,8 @@ mod tests {
     #[tokio::test]
     async fn test_code_logic_flow() {
         let ctx = TestContext::new().await;
-        let project_path = ctx._temp_dir.path().join("test_project_logic");
+        let unique_id = format!("test_project_{}", surrealdb::Uuid::new_v4().simple());
+        let project_path = ctx._temp_dir.path().join(&unique_id);
         fs::create_dir_all(&project_path).unwrap();
         fs::write(
             project_path.join("main.rs"),
@@ -333,36 +527,43 @@ mod tests {
         // 2. Wait for indexing to complete
         // Since it's a background task, we poll get_index_status
         let status_params = GetIndexStatusParams {
-            project_id: "test_project_logic".to_string(),
+            project_id: unique_id.clone(),
         };
 
         let mut retries = 0;
+        let mut last_status = String::new();
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
             let res = get_index_status(&ctx.state, status_params.clone())
                 .await
                 .unwrap();
             if let rmcp::model::RawContent::Text(t) = &res.content[0].raw {
-                if t.text.contains("completed") || t.text.contains("embedding_pending") {
+                last_status = t.text.clone();
+                let wait_for_full_completion = t.text.contains("\"status\":\"completed\"");
+                if wait_for_full_completion {
                     break;
                 }
             }
             retries += 1;
-            if retries > 50 {
-                panic!("Indexing timed out");
+            if retries > 100 {
+                panic!("Indexing timed out. Last status: {}", last_status);
             }
         }
 
         // 3. Search Code
         let search_params = SearchCodeParams {
             query: "Hello".to_string(),
-            project_id: Some("test_project_logic".to_string()),
+            project_id: Some(unique_id.clone()),
             limit: Some(5),
         };
         let search_res = search_code(&ctx.state, search_params).await.unwrap();
 
         if let rmcp::model::RawContent::Text(t) = &search_res.content[0].raw {
-            assert!(t.text.contains("main.rs"));
+            assert!(
+                t.text.contains("main.rs"),
+                "Expected 'main.rs' in search results. Got: {}",
+                &t.text[..std::cmp::min(500, t.text.len())]
+            );
             assert!(t.text.contains("Hello"));
         } else {
             panic!("Expected text content");

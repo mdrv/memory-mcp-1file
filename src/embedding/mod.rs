@@ -1,6 +1,7 @@
 pub mod adaptive_queue;
 mod cache;
 mod cleanup;
+pub mod completion_monitor;
 mod config;
 pub mod coordinator;
 mod engine;
@@ -15,6 +16,7 @@ pub mod worker;
 pub use adaptive_queue::{AdaptiveEmbeddingQueue, AdaptiveQueueConfig};
 pub use cache::{CacheStats, EmbeddingCache};
 pub use cleanup::{cleanup_model_cache, CleanupConfig, CleanupResult};
+pub use completion_monitor::run_completion_monitor;
 pub use config::{EmbeddingConfig, ModelType};
 pub use coordinator::EmbeddingCoordinator;
 pub use engine::EmbeddingEngine;

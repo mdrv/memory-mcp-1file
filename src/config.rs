@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 
 use crate::embedding::{AdaptiveEmbeddingQueue, EmbeddingService, EmbeddingStore};
 use crate::storage::SurrealStorage;
@@ -94,4 +94,6 @@ pub struct AppState {
     pub embedding_store: Arc<EmbeddingStore>,
     pub embedding_queue: AdaptiveEmbeddingQueue,
     pub progress: IndexProgressTracker,
+    /// Semaphore to limit concurrent DB operations (prevents SurrealKV channel exhaustion)
+    pub db_semaphore: Arc<Semaphore>,
 }
