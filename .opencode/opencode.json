@@ -1,0 +1,43 @@
+{
+    "$schema": "https://opencode.ai/config.json",
+    "mcp": {
+        "memory-mcp-dev": {
+            "type": "local",
+            "command": [
+                "docker",
+                "run",
+                "--init",
+                "--rm",
+                "-i",
+                "--name",
+                "memory-mcp-dev",
+                "-v",
+                "memory-mcp-data-dev:/data",
+                "-v",
+                "/home/unnamed/project/memory-mcp-1file:/project:ro",
+                "memory-mcp:fast"
+            ],
+            "enabled": true
+        },
+        "memory-mcp-odoo-mobile": {
+            "type": "local",
+            "command": [
+                "docker",
+                "run",
+                "--init",
+                "--rm",
+                "-i",
+                "--name",
+                "memory-mcp-odoo-mobile",
+                "-v",
+                "memory-mcp-odoo-mobile-data:/data",
+                "-v",
+                "/home/unnamed/project/mobile-odoo:/project:ro",
+                "-e",
+                "RECONNECT_TIMEOUT=60",
+                "ghcr.io/pomazanbohdan/memory-mcp-1file:latest"
+            ],
+            "enabled": false
+        }
+    }
+}
