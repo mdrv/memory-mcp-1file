@@ -32,6 +32,11 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
 
     let files = scan_directory(project_path)?;
     status.total_files = files.len() as u32;
+    tracing::info!(
+        project = %project_id,
+        total_files = status.total_files,
+        "Indexing started"
+    );
     monitor
         .total_files
         .store(status.total_files, std::sync::atomic::Ordering::Relaxed);
@@ -48,7 +53,28 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
     let mut relation_buffer: Vec<CodeReference> = Vec::new();
     let mut total_relation_stats = RelationStats::default();
 
+    const MAX_CHUNKS_PER_FILE: usize = 50;
+
     for file_path in &files {
+        // Skip auto-generated files (no useful semantic content)
+        if is_generated_file(file_path) {
+            tracing::debug!(path = ?file_path, "Skipping generated file");
+            status.indexed_files += 1;
+            continue;
+        }
+
+        // Warn on large files but still process them (with chunk cap)
+        if let Ok(meta) = fs::metadata(file_path).await {
+            if meta.len() > 1_048_576 {
+                tracing::warn!(
+                    path = ?file_path,
+                    size_kb = meta.len() / 1024,
+                    "Large file detected (>1MB), will cap at {} chunks",
+                    MAX_CHUNKS_PER_FILE
+                );
+            }
+        }
+
         let content = match fs::read_to_string(file_path).await {
             Ok(c) => c,
             Err(e) => {
@@ -57,8 +83,17 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
             }
         };
 
-        // 1. Chunking (Vector Search)
-        let chunks = chunk_file(file_path, &content, &project_id);
+        // 1. Chunking (Vector Search) — cap chunks per file to bound memory
+        let mut chunks = chunk_file(file_path, &content, &project_id);
+        if chunks.len() > MAX_CHUNKS_PER_FILE {
+            tracing::info!(
+                path = ?file_path,
+                total = chunks.len(),
+                kept = MAX_CHUNKS_PER_FILE,
+                "Capping chunks for large file"
+            );
+            chunks.truncate(MAX_CHUNKS_PER_FILE);
+        }
         for chunk in chunks {
             chunk_buffer.push(chunk);
             status.total_chunks += 1;
@@ -142,6 +177,15 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         if status.indexed_files.is_multiple_of(10) {
+            let percent = (status.indexed_files as f32 / status.total_files as f32 * 100.0) as u32;
+            tracing::info!(
+                indexed = status.indexed_files,
+                total = status.total_files,
+                percent,
+                chunks = status.total_chunks,
+                symbols = status.total_symbols,
+                "Indexing progress"
+            );
             if let Err(e) = state.storage.update_index_status(status.clone()).await {
                 tracing::warn!("Failed to update intermediate status: {}", e);
             }
@@ -357,6 +401,47 @@ pub async fn incremental_index(
     }
 
     Ok(updated)
+}
+
+/// Detect auto-generated files that waste memory and have no useful semantic content
+fn is_generated_file(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    let name_lower = name.to_lowercase();
+
+    // Generated Dart files (build_runner, freezed, json_serializable)
+    if name_lower.ends_with(".g.dart")
+        || name_lower.ends_with(".freezed.dart")
+        || name_lower.ends_with(".gr.dart")
+        || name_lower.ends_with(".config.dart")
+        || name_lower.ends_with(".mocks.dart")
+    {
+        return true;
+    }
+
+    // Minified JS/CSS
+    if name_lower.ends_with(".min.js")
+        || name_lower.ends_with(".min.css")
+        || name_lower.ends_with(".bundle.js")
+    {
+        return true;
+    }
+
+    // Lock files and generated manifests
+    matches!(
+        name_lower.as_str(),
+        "package-lock.json"
+            | "yarn.lock"
+            | "pnpm-lock.yaml"
+            | "composer.lock"
+            | "cargo.lock"
+            | "pubspec.lock"
+            | "gemfile.lock"
+            | "poetry.lock"
+    )
 }
 
 #[cfg(test)]

@@ -49,12 +49,6 @@ pub fn is_code_file(path: &Path) -> bool {
             | "sh"
             | "bash"
             | "zsh"
-            | "json"
-            | "yaml"
-            | "yml"
-            | "toml"
-            | "xml"
-            | "md"
     )
 }
 

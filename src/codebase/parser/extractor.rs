@@ -16,9 +16,10 @@ impl Extractor {
     pub fn new(language: Language) -> Option<Self> {
         let support = get_language_support(language.clone())?;
         let mut parser = Parser::new();
-        parser
-            .set_language(&support.get_language())
-            .expect("Error loading grammar");
+        if parser.set_language(&support.get_language()).is_err() {
+            tracing::error!("Failed to load grammar for {:?}", language);
+            return None;
+        }
 
         Some(Self {
             parser,

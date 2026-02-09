@@ -177,17 +177,12 @@ impl EmbeddingService {
 
         let load_state_for_callback = load_state.clone();
         let callback = callback_builder(move |progress: ProgressEvent| {
-            let load_state_inner = load_state_for_callback.clone();
-            let rt_inner = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            rt_inner.block_on(async {
-                let mut state = load_state_inner.write().await;
+            // Use try_write to avoid needing a runtime — skip update if lock is contended
+            if let Ok(mut state) = load_state_for_callback.try_write() {
                 state.progress_percent = Some(progress.percentage * 100.0);
                 let remaining = progress.remaining_time.as_secs();
                 state.remaining_seconds = if remaining > 0 { Some(remaining) } else { None };
-            });
+            }
         });
 
         let weights_path = repo.download_with_progress("model.safetensors", callback)?;

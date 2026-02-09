@@ -23,6 +23,7 @@ RUN wget -q -O memory-mcp.tar.gz \
 RUN mkdir -p /data /project
 ENV DATA_DIR=/data
 ENV LOG_LEVEL=info
+ENV SURREAL_MEMORY_THRESHOLD=256mb
 
 # Persist data and allow project mounting
 VOLUME ["/data", "/project"]

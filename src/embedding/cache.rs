@@ -26,7 +26,7 @@ impl EmbeddingCache {
 
     pub fn get(&self, text: &str, model_version: &str) -> Option<Vec<f32>> {
         let key = Self::cache_key(text, model_version);
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(vec) = cache.get(&key) {
             self.hits.fetch_add(1, Ordering::Relaxed);
             Some(vec.clone())
@@ -38,12 +38,12 @@ impl EmbeddingCache {
 
     pub fn put(&self, text: &str, model_version: &str, embedding: Vec<f32>) {
         let key = Self::cache_key(text, model_version);
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.put(key, embedding);
     }
 
     pub fn stats(&self) -> CacheStats {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         CacheStats {
             hits: self.hits.load(Ordering::Relaxed),
             misses: self.misses.load(Ordering::Relaxed),
