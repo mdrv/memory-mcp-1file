@@ -11,7 +11,7 @@ DEFINE FIELD content          ON memories TYPE string;
 DEFINE FIELD embedding        ON memories TYPE option<array<float>>;
 DEFINE FIELD memory_type      ON memories TYPE string DEFAULT 'semantic';
 DEFINE FIELD user_id          ON memories TYPE option<string>;
-DEFINE FIELD metadata         ON memories TYPE option<object>;
+DEFINE FIELD metadata         ON memories FLEXIBLE TYPE option<object>;
 DEFINE FIELD event_time       ON memories TYPE datetime DEFAULT time::now();
 DEFINE FIELD ingestion_time   ON memories TYPE datetime DEFAULT time::now();
 DEFINE FIELD valid_from       ON memories TYPE datetime DEFAULT time::now();
@@ -44,6 +44,13 @@ DEFINE INDEX IF NOT EXISTS idx_entities_fts ON entities
 -- Relations table will be auto-created by RELATE statements
 -- No explicit definition needed; RELATE creates edge tables automatically
 
+-- Symbol relations table (code graph edges: calls, imports, etc.)
+DEFINE TABLE IF NOT EXISTS symbol_relation;
+DEFINE INDEX IF NOT EXISTS idx_sr_in ON symbol_relation FIELDS in;
+DEFINE INDEX IF NOT EXISTS idx_sr_out ON symbol_relation FIELDS out;
+DEFINE INDEX IF NOT EXISTS idx_sr_project ON symbol_relation FIELDS project_id;
+DEFINE INDEX IF NOT EXISTS idx_sr_type ON symbol_relation FIELDS relation_type;
+
 -- Code chunks table
 DEFINE TABLE IF NOT EXISTS code_chunks SCHEMAFULL;
 DEFINE FIELD file_path        ON code_chunks TYPE string;
@@ -73,6 +80,7 @@ DEFINE FIELD status           ON index_status TYPE string;
 DEFINE FIELD total_files      ON index_status TYPE int DEFAULT 0;
 DEFINE FIELD indexed_files    ON index_status TYPE int DEFAULT 0;
 DEFINE FIELD total_chunks     ON index_status TYPE int DEFAULT 0;
+DEFINE FIELD total_symbols    ON index_status TYPE int DEFAULT 0;
 DEFINE FIELD started_at       ON index_status TYPE datetime;
 DEFINE FIELD completed_at     ON index_status TYPE option<datetime>;
 DEFINE FIELD error_message    ON index_status TYPE option<string>;

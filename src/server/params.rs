@@ -1,6 +1,13 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/// Schema override: serde_json::Value generates boolean `true` via schemars,
+/// which Claude Code's Zod validator rejects. We emit `{}` (empty object schema) instead.
+/// See: https://github.com/anthropics/claude-code/issues/17742
+fn any_value_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({})
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct StoreMemoryParams {
     pub content: String,
@@ -8,7 +15,8 @@ pub struct StoreMemoryParams {
     pub memory_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schemars(schema_with = "any_value_schema")]
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -24,7 +32,8 @@ pub struct UpdateMemoryParams {
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schemars(schema_with = "any_value_schema")]
     pub metadata: Option<serde_json::Value>,
 }
 

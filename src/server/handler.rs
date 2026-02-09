@@ -366,7 +366,7 @@ impl ServerHandler for MemoryMcpServer {
 
     async fn list_tools(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
         Ok(ListToolsResult::with_all_items(self.tool_router.list_all()))
@@ -374,7 +374,7 @@ impl ServerHandler for MemoryMcpServer {
 
     async fn call_tool(
         &self,
-        request: CallToolRequestParam,
+        request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let tool_context = ToolCallContext::new(self, request, context);

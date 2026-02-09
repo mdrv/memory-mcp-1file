@@ -102,37 +102,34 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
                 let batch = std::mem::take(&mut symbol_buffer);
                 let _permit = state.db_semaphore.acquire().await;
                 // 1. Insert batch to get IDs
-                if let Ok(ids) = state.storage.create_code_symbols_batch(batch.clone()).await {
-                    // 2. Queue for async embedding
-                    for (id, sym) in ids.iter().zip(batch.iter()) {
-                        if let Some(sig) = &sym.signature {
-                            let _ = state
-                                .embedding_queue
-                                .send(EmbeddingRequest {
-                                    text: sig.clone(),
-                                    responder: None,
-                                    target: Some(EmbeddingTarget::Symbol(id.clone())),
-                                    retry_count: 0,
-                                })
-                                .await;
+                match state.storage.create_code_symbols_batch(batch.clone()).await {
+                    Ok(ids) => {
+                        // 2. Queue for async embedding
+                        for (id, sym) in ids.iter().zip(batch.iter()) {
+                            if let Some(sig) = &sym.signature {
+                                let _ = state
+                                    .embedding_queue
+                                    .send(EmbeddingRequest {
+                                        text: sig.clone(),
+                                        responder: None,
+                                        target: Some(EmbeddingTarget::Symbol(id.clone())),
+                                        retry_count: 0,
+                                    })
+                                    .await;
+                            }
                         }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            count = batch.len(),
+                            error = %e,
+                            "Failed to store symbol batch"
+                        );
                     }
                 }
 
-                // 3. Flush pending relations after symbols are in DB
-                if !relation_buffer.is_empty() {
-                    let refs = std::mem::take(&mut relation_buffer);
-                    let stats = create_symbol_relations(
-                        state.storage.as_ref(),
-                        &project_id,
-                        &refs,
-                        &symbol_index,
-                    )
-                    .await;
-                    total_relation_stats.created += stats.created;
-                    total_relation_stats.failed += stats.failed;
-                    total_relation_stats.unresolved += stats.unresolved;
-                }
+                // Relations are deferred to final flush after ALL symbols are indexed
+                // (removing mid-loop flush fixes cross-file forward reference loss)
             }
         }
 
@@ -338,9 +335,14 @@ pub async fn incremental_index(
             }
         }
 
-        // Create relations using the proper helper with symbol index
+        // Create relations using project-wide symbol index for cross-file resolution
         if !references.is_empty() {
             let mut symbol_index = SymbolIndex::new();
+            // Load ALL project symbols from DB for cross-file resolution
+            if let Ok(all_symbols) = state.storage.get_project_symbols(project_id).await {
+                symbol_index.add_batch(&all_symbols);
+            }
+            // Also add current file's new symbols (may not be in DB yet)
             symbol_index.add_batch(&symbols);
             let _stats = create_symbol_relations(
                 state.storage.as_ref(),

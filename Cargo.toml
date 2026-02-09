@@ -1,6 +1,6 @@
 [package]
 name = "memory-mcp"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "MCP memory server for AI agents"
 license = "MIT"
@@ -13,14 +13,14 @@ surrealdb = { version = "2", default-features = false, features = [
 ] }
 
 # Embeddings
-candle-core = "0.9.1"
-candle-nn = "0.9.1"
-candle-transformers = "0.9.1"
+candle-core = "0.9"
+candle-nn = "0.9"
+candle-transformers = "0.9"
 tokenizers = "0.22.2"
 hf-hub = { version = "0.4", default-features = false, features = ["ureq"] }
 
 # MCP Protocol
-rmcp = { version = "0.12.0", features = [
+rmcp = { version = "0.14", features = [
     "server",
     "client",
     "transport-io",
@@ -32,13 +32,13 @@ schemars = "1"
 petgraph = "0.8.3"
 
 # Code parsing - tree-sitter with language grammars
-tree-sitter = "0.24"
+tree-sitter = "0.26"
 streaming-iterator = "0.1"
-tree-sitter-rust = "0.23"
-tree-sitter-python = "0.23"
+tree-sitter-rust = "0.24"
+tree-sitter-python = "0.25"
 tree-sitter-typescript = "0.23"
-tree-sitter-javascript = "0.23"
-tree-sitter-go = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-go = "0.25"
 tree-sitter-java = "0.23"
 
 # Async runtime

@@ -195,6 +195,9 @@ pub trait StorageBackend: Send + Sync {
     /// Delete all symbols for a specific file
     async fn delete_symbols_by_path(&self, project_id: &str, file_path: &str) -> Result<usize>;
 
+    /// Get all symbols for a project (for building cross-file SymbolIndex)
+    async fn get_project_symbols(&self, project_id: &str) -> Result<Vec<CodeSymbol>>;
+
     /// Find all symbols that call a given symbol
     async fn get_symbol_callers(&self, symbol_id: &str) -> Result<Vec<CodeSymbol>>;
 

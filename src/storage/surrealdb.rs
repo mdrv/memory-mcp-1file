@@ -727,45 +727,21 @@ impl StorageBackend for SurrealStorage {
             return Ok(vec![]);
         }
 
-        // Prepare symbols with pre-generated keys for batch UPSERT
+        // Use typed SDK upsert per symbol — preserves Datetime type correctly.
+        // Raw SQL FOR loop + serde_json loses Datetime → string, which SCHEMAFULL
+        // silently rejects (SurrealDB #6816).
         let mut ids = Vec::with_capacity(symbols.len());
-        let mut prepared = Vec::with_capacity(symbols.len());
 
-        for symbol in &symbols {
+        for mut symbol in symbols {
             let key = symbol.unique_key();
+            symbol.id = None;
+            let _: Option<CodeSymbol> = self
+                .db
+                .upsert(("code_symbols", key.as_str()))
+                .content(symbol)
+                .await?;
             ids.push(format!("code_symbols:{}", key));
-
-            // Prepare data for SurQL FOR loop
-            prepared.push(serde_json::json!({
-                "key": key,
-                "name": symbol.name,
-                "symbol_type": symbol.symbol_type,
-                "file_path": symbol.file_path,
-                "start_line": symbol.start_line,
-                "end_line": symbol.end_line,
-                "project_id": symbol.project_id,
-                "signature": symbol.signature,
-                "indexed_at": surrealdb::sql::Datetime::default()
-            }));
         }
-
-        // Single query with FOR loop - reduces N calls to 1
-        let sql = r#"
-            FOR $s IN $symbols {
-                UPSERT type::record('code_symbols', $s.key) CONTENT {
-                    name: $s.name,
-                    symbol_type: $s.symbol_type,
-                    file_path: $s.file_path,
-                    start_line: $s.start_line,
-                    end_line: $s.end_line,
-                    project_id: $s.project_id,
-                    signature: $s.signature,
-                    indexed_at: $s.indexed_at
-                };
-            };
-        "#;
-
-        self.db.query(sql).bind(("symbols", prepared)).await?;
 
         Ok(ids)
     }
@@ -848,7 +824,10 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn delete_project_symbols(&self, project_id: &str) -> Result<usize> {
-        let sql = "DELETE code_symbols WHERE project_id = $project_id";
+        let sql = r#"
+            DELETE symbol_relation WHERE project_id = $project_id;
+            DELETE code_symbols WHERE project_id = $project_id;
+        "#;
         let _ = self
             .db
             .query(sql)
@@ -858,7 +837,10 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn delete_symbols_by_path(&self, project_id: &str, file_path: &str) -> Result<usize> {
-        let sql = "DELETE code_symbols WHERE project_id = $project_id AND file_path = $file_path";
+        let sql = r#"
+            DELETE symbol_relation WHERE project_id = $project_id AND file_path = $file_path;
+            DELETE code_symbols WHERE project_id = $project_id AND file_path = $file_path;
+        "#;
         let _ = self
             .db
             .query(sql)
@@ -866,6 +848,17 @@ impl StorageBackend for SurrealStorage {
             .bind(("file_path", file_path.to_string()))
             .await?;
         Ok(0)
+    }
+
+    async fn get_project_symbols(&self, project_id: &str) -> Result<Vec<CodeSymbol>> {
+        let sql = "SELECT * FROM code_symbols WHERE project_id = $project_id";
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .await?;
+        let symbols: Vec<CodeSymbol> = response.take(0)?;
+        Ok(symbols)
     }
 
     async fn get_symbol_callers(&self, symbol_id: &str) -> Result<Vec<CodeSymbol>> {
