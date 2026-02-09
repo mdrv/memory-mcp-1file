@@ -40,7 +40,7 @@ tree-sitter-typescript = "0.23"
 tree-sitter-javascript = "0.25"
 tree-sitter-go = "0.25"
 tree-sitter-java = "0.23"
-tree-sitter-dart = "0.0.4"
+tree-sitter-dart-orchard = "0.3.2"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -73,6 +73,7 @@ sha2 = "0.10.9"
 moka = { version = "0.12.12", features = ["future"] }
 redb = "3.1.0"
 bincode = { version = "=2.0.1", features = ["serde"] }
+
 
 [dev-dependencies]
 tempfile = "3"

@@ -299,7 +299,7 @@ impl LanguageSupport for JavaSupport {
 pub struct DartSupport;
 impl LanguageSupport for DartSupport {
     fn get_language(&self) -> tree_sitter::Language {
-        tree_sitter_dart::language().into()
+        tree_sitter_dart_orchard::LANGUAGE.into()
     }
 
     fn get_definition_query(&self) -> &str {
