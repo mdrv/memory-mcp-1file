@@ -1,0 +1,37 @@
+{
+    "name": "memory-mcp",
+    "version": "0.2.2",
+    "description": "MCP memory server with semantic search, code indexing, and knowledge graph for AI agents",
+    "bin": {
+        "memory-mcp": "./run.js"
+    },
+    "scripts": {
+        "postinstall": "node postinstall.js"
+    },
+    "keywords": [
+        "mcp",
+        "memory",
+        "ai",
+        "semantic-search",
+        "knowledge-graph",
+        "code-indexing",
+        "model-context-protocol"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/pomazanbohdan/memory-mcp-1file"
+    },
+    "homepage": "https://github.com/pomazanbohdan/memory-mcp-1file#readme",
+    "bugs": {
+        "url": "https://github.com/pomazanbohdan/memory-mcp-1file/issues"
+    },
+    "license": "MIT",
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "files": [
+        "run.js",
+        "postinstall.js",
+        "README.md"
+    ]
+}
