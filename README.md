@@ -177,7 +177,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "memory-mcp"]
+      "args": ["-y", "memory-mcp-1file"]
     }
   }
 }
@@ -186,7 +186,7 @@ Add to `claude_desktop_config.json`:
 #### Claude Code (CLI)
 
 ```bash
-claude mcp add memory -- npx -y memory-mcp
+claude mcp add memory -- npx -y memory-mcp-1file
 ```
 
 #### Cursor
@@ -195,7 +195,7 @@ claude mcp add memory -- npx -y memory-mcp
 2.  Click **+ Add New MCP Server**.
 3.  **Type**: `command`
 4.  **Name**: `memory`
-5.  **Command**: `npx -y memory-mcp`
+5.  **Command**: `npx -y memory-mcp-1file`
 
 Or add to `.cursor/mcp.json`:
 
@@ -204,7 +204,7 @@ Or add to `.cursor/mcp.json`:
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "memory-mcp"]
+      "args": ["-y", "memory-mcp-1file"]
     }
   }
 }
@@ -219,7 +219,7 @@ Add to your MCP settings:
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "memory-mcp"]
+      "args": ["-y", "memory-mcp-1file"]
     }
   }
 }
@@ -232,7 +232,7 @@ Add to your MCP settings:
   "mcpServers": {
     "memory": {
       "command": "bunx",
-      "args": ["memory-mcp"]
+      "args": ["memory-mcp-1file"]
     }
   }
 }
@@ -240,7 +240,7 @@ Add to your MCP settings:
 
 > **Note:** Unlike Docker, `npx`/`bunx` runs the binary **locally** — it already has access to your filesystem, so no directory mounting is needed. To customize the data storage path, pass `--data-dir` via args:
 > ```json
-> "args": ["-y", "memory-mcp", "--", "--data-dir", "/path/to/data"]
+> "args": ["-y", "memory-mcp-1file", "--", "--data-dir", "/path/to/data"]
 > ```
 
 ---

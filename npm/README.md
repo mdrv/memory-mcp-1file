@@ -1,4 +1,4 @@
-# memory-mcp
+# memory-mcp-1file
 
 MCP memory server with semantic search, code indexing, and knowledge graph for AI agents.
 
@@ -6,10 +6,10 @@ MCP memory server with semantic search, code indexing, and knowledge graph for A
 
 ```bash
 # Run directly (downloads binary automatically)
-npx memory-mcp
+npx memory-mcp-1file
 
 # Or with bun
-bunx memory-mcp
+bunx memory-mcp-1file
 ```
 
 ## What is this?
@@ -30,7 +30,7 @@ Use with Claude Code, Cursor, or any MCP-compatible client:
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "memory-mcp"]
+      "args": ["-y", "memory-mcp-1file"]
     }
   }
 }
