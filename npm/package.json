@@ -1,6 +1,6 @@
 {
     "name": "memory-mcp-1file",
-    "version": "0.2.3",
+    "version": "0.2.4",
     "description": "MCP memory server with semantic search, code indexing, and knowledge graph for AI agents",
     "bin": {
         "memory-mcp": "./run.js"

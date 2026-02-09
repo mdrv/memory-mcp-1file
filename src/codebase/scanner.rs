@@ -36,6 +36,7 @@ pub fn is_code_file(path: &Path) -> bool {
             | "tsx"
             | "go"
             | "java"
+            | "dart"
             | "c"
             | "cpp"
             | "h"
@@ -69,6 +70,7 @@ pub fn detect_language(path: &Path) -> Language {
         "ts" | "tsx" => Language::TypeScript,
         "go" => Language::Go,
         "java" => Language::Java,
+        "dart" => Language::Dart,
         _ => Language::Unknown,
     }
 }

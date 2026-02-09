@@ -296,6 +296,49 @@ impl LanguageSupport for JavaSupport {
     }
 }
 
+pub struct DartSupport;
+impl LanguageSupport for DartSupport {
+    fn get_language(&self) -> tree_sitter::Language {
+        tree_sitter_dart::LANGUAGE.into()
+    }
+
+    fn get_definition_query(&self) -> &str {
+        r#"
+        (class_definition name: (identifier) @class)
+        (method_signature name: (identifier) @method)
+        (function_signature name: (identifier) @function)
+        (enum_declaration name: (identifier) @enum)
+        (mixin_declaration name: (identifier) @class)
+        (extension_declaration name: (identifier) @class)
+        "#
+    }
+
+    fn get_reference_query(&self) -> &str {
+        r#"
+        (identifier) @call
+        (import_or_export (configurable_uri (uri (string_literal) @import)))
+        "#
+    }
+
+    fn map_symbol_type(&self, kind: &str) -> SymbolType {
+        match kind {
+            "class" => SymbolType::Class,
+            "method" => SymbolType::Method,
+            "function" => SymbolType::Function,
+            "enum" => SymbolType::Enum,
+            _ => SymbolType::Function,
+        }
+    }
+
+    fn map_relation_type(&self, kind: &str) -> CodeRelationType {
+        match kind {
+            "call" | "method_call" => CodeRelationType::Calls,
+            "import" => CodeRelationType::Imports,
+            _ => CodeRelationType::Calls,
+        }
+    }
+}
+
 pub fn get_language_support(lang: Language) -> Option<Box<dyn LanguageSupport>> {
     match lang {
         Language::Rust => Some(Box::new(RustSupport)),
@@ -304,6 +347,7 @@ pub fn get_language_support(lang: Language) -> Option<Box<dyn LanguageSupport>> 
         Language::JavaScript => Some(Box::new(JavaScriptSupport)),
         Language::Go => Some(Box::new(GoSupport)),
         Language::Java => Some(Box::new(JavaSupport)),
+        Language::Dart => Some(Box::new(DartSupport)),
         _ => None,
     }
 }

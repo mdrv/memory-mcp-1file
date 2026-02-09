@@ -58,6 +58,7 @@ pub enum Language {
     TypeScript,
     Go,
     Java,
+    Dart,
     #[default]
     Unknown,
 }

@@ -249,7 +249,7 @@ Add to your MCP settings:
 
 - **Semantic Memory**: Stores text with vector embeddings (`e5-small` by default) for "vibe-based" retrieval.
 - **Graph Memory**: Tracks entities (`User`, `Project`, `Tech`) and their relations (`uses`, `likes`). Supports PageRank-based traversal.
-- **Code Intelligence**: Indexes local project directories (AST-based chunking) to answer questions about your code.
+- **Code Intelligence**: Indexes local project directories (AST-based chunking) for Rust, Python, TypeScript, JavaScript, Go, Java, and **Dart/Flutter**.
 - **Temporal Validity**: Memories can have `valid_from` and `valid_until` dates.
 - **SurrealDB Backend**: Fast, embedded, single-file database.
 
