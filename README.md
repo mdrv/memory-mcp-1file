@@ -164,6 +164,85 @@ docker run --init -i --rm \
   ghcr.io/pomazanbohdan/memory-mcp-1file:latest
 ```
 
+### NPX / Bunx (No Docker required)
+
+You can run the server directly via `npx` or `bunx`. The npm package automatically downloads the correct pre-compiled binary for your platform.
+
+#### Claude Desktop
+
+Add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "memory-mcp"]
+    }
+  }
+}
+```
+
+#### Claude Code (CLI)
+
+```bash
+claude mcp add memory -- npx -y memory-mcp
+```
+
+#### Cursor
+
+1.  Go to **Cursor Settings** > **Features** > **MCP Servers**.
+2.  Click **+ Add New MCP Server**.
+3.  **Type**: `command`
+4.  **Name**: `memory`
+5.  **Command**: `npx -y memory-mcp`
+
+Or add to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "memory-mcp"]
+    }
+  }
+}
+```
+
+#### Windsurf / VS Code
+
+Add to your MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "memory-mcp"]
+    }
+  }
+}
+```
+
+#### Bun
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "bunx",
+      "args": ["memory-mcp"]
+    }
+  }
+}
+```
+
+> **Note:** Unlike Docker, `npx`/`bunx` runs the binary **locally** — it already has access to your filesystem, so no directory mounting is needed. To customize the data storage path, pass `--data-dir` via args:
+> ```json
+> "args": ["-y", "memory-mcp", "--", "--data-dir", "/path/to/data"]
+> ```
+
 ---
 
 ## ✨ Key Features
