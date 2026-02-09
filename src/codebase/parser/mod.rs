@@ -152,8 +152,17 @@ extension StringExt on String {
             symbols.iter().map(|s| &s.name).collect::<Vec<_>>()
         );
 
-        assert!(symbols.iter().any(|s| s.name == "MyWidget"), "Should find class MyWidget");
-        assert!(symbols.iter().any(|s| s.name == "main"), "Should find function main");
-        assert!(symbols.iter().any(|s| s.name == "AppState"), "Should find enum AppState");
+        assert!(
+            symbols.iter().any(|s| s.name == "MyWidget"),
+            "Should find class MyWidget"
+        );
+        assert!(
+            symbols.iter().any(|s| s.name == "main"),
+            "Should find function main"
+        );
+        assert!(
+            symbols.iter().any(|s| s.name == "AppState"),
+            "Should find enum AppState"
+        );
     }
 }
