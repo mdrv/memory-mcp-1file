@@ -6,7 +6,7 @@ use super::metrics::EmbeddingMetrics;
 use crate::embedding::EmbeddingRequest;
 use crate::Result;
 
-const DEFAULT_CAPACITY: usize = 5000;
+const DEFAULT_CAPACITY: usize = 1000;
 const HIGH_WATERMARK: f32 = 0.8;
 const THROTTLE_DELAY_MS: u64 = 50;
 

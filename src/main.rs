@@ -90,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
     embedding.start_loading();
 
     let metrics = std::sync::Arc::new(memory_mcp::embedding::EmbeddingMetrics::new());
-    let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(5000);
+    let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(1000);
     let adaptive_queue =
         memory_mcp::embedding::AdaptiveEmbeddingQueue::with_defaults(queue_tx, metrics.clone());
 
@@ -117,7 +117,12 @@ async fn main() -> anyhow::Result<()> {
         embedding_store.clone(),
         state.clone(),
     );
-    tokio::spawn(worker.run());
+    tokio::spawn(async move {
+        match tokio::spawn(worker.run()).await {
+            Ok(count) => tracing::info!(count, "Embedding worker finished"),
+            Err(e) => tracing::error!("Embedding worker panicked: {}", e),
+        }
+    });
 
     let monitor_state = state.clone();
     tokio::spawn(memory_mcp::embedding::run_completion_monitor(monitor_state));

@@ -7,6 +7,10 @@ use candle_transformers::models::bert::{BertModel, Config, DTYPE};
 use hf_hub::api::sync::Api;
 use tokenizers::Tokenizer;
 
+/// Maximum token sequence length for BERT models.
+/// Attention is O(n²) — exceeding this causes massive memory usage.
+const MAX_SEQ_LEN: usize = 512;
+
 use super::config::ModelType;
 
 pub struct EmbeddingEngine {
@@ -108,11 +112,18 @@ impl EmbeddingEngine {
         let token_ids: Vec<u32> = tokens
             .get_ids()
             .iter()
+            .take(MAX_SEQ_LEN) // Truncate to prevent O(n²) attention OOM
             .map(|&id| if id >= vocab_size { unk_id } else { id })
             .collect();
 
         let token_ids_tensor = Tensor::new(&token_ids[..], &self.device)?.unsqueeze(0)?;
-        let token_type_ids = Tensor::new(tokens.get_type_ids(), &self.device)?.unsqueeze(0)?;
+        let type_ids: Vec<u32> = tokens
+            .get_type_ids()
+            .iter()
+            .take(MAX_SEQ_LEN)
+            .copied()
+            .collect();
+        let token_type_ids = Tensor::new(type_ids.as_slice(), &self.device)?.unsqueeze(0)?;
 
         let embeddings = model.forward(&token_ids_tensor, &token_type_ids, None)?;
 
@@ -174,12 +185,18 @@ impl EmbeddingEngine {
             let token_ids: Vec<u32> = tokens
                 .get_ids()
                 .iter()
+                .take(MAX_SEQ_LEN) // Truncate to prevent O(n²) attention OOM
                 .map(|&id| if id >= vocab_size { unk_id } else { id })
                 .collect();
-            let type_ids = tokens.get_type_ids();
+            let type_ids: Vec<u32> = tokens
+                .get_type_ids()
+                .iter()
+                .take(MAX_SEQ_LEN)
+                .copied()
+                .collect();
             max_len = max_len.max(token_ids.len());
             all_token_ids.push(token_ids);
-            all_token_type_ids.push(type_ids.to_vec());
+            all_token_type_ids.push(type_ids);
         }
 
         // 2. Pad and create batch tensors
