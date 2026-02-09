@@ -89,4 +89,71 @@ fn bar(x: i32) {}
             calls.len()
         );
     }
+
+    #[test]
+    fn test_dart_symbol_extraction() {
+        let content = r#"
+import 'package:flutter/material.dart';
+
+class MyWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+
+  void _handleTap() {}
+}
+
+void main() {
+  runApp(MyApp());
+}
+
+enum AppState {
+  loading,
+  ready,
+  error,
+}
+
+mixin LoggingMixin {
+  void log(String message) {
+    print(message);
+  }
+}
+
+extension StringExt on String {
+  String capitalize() {
+    return '${this[0].toUpperCase()}${substring(1)}';
+  }
+}
+"#;
+        let path = PathBuf::from("test.dart");
+        let (symbols, refs) = CodeParser::parse_file(&path, content, "test");
+
+        println!("=== DART SYMBOLS ===");
+        for s in &symbols {
+            println!(
+                "  {} ({:?}) at lines {}-{}",
+                s.name, s.symbol_type, s.start_line, s.end_line
+            );
+        }
+
+        println!("\n=== DART REFERENCES ===");
+        for r in &refs {
+            println!(
+                "  {} -> {} ({:?}) at line {}",
+                r.from_symbol, r.to_symbol, r.relation_type, r.line
+            );
+        }
+
+        assert!(
+            symbols.len() >= 5,
+            "Expected at least 5 symbols, got {}. Names: {:?}",
+            symbols.len(),
+            symbols.iter().map(|s| &s.name).collect::<Vec<_>>()
+        );
+
+        assert!(symbols.iter().any(|s| s.name == "MyWidget"), "Should find class MyWidget");
+        assert!(symbols.iter().any(|s| s.name == "main"), "Should find function main");
+        assert!(symbols.iter().any(|s| s.name == "AppState"), "Should find enum AppState");
+    }
 }

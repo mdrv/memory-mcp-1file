@@ -305,18 +305,21 @@ impl LanguageSupport for DartSupport {
     fn get_definition_query(&self) -> &str {
         r#"
         (class_definition name: (identifier) @class)
-        (method_signature name: (identifier) @method)
-        (function_signature name: (identifier) @function)
+        (program (function_signature name: (identifier) @function))
+        (declaration (function_signature name: (identifier) @function))
+        (method_signature (function_signature name: (identifier) @method))
+        (method_signature (getter_signature (identifier) @method))
+        (method_signature (setter_signature (identifier) @method))
+        (method_signature (constructor_signature name: (identifier) @method))
         (enum_declaration name: (identifier) @enum)
-        (mixin_declaration name: (identifier) @class)
+        (mixin_declaration (identifier) @class)
         (extension_declaration name: (identifier) @class)
         "#
     }
 
     fn get_reference_query(&self) -> &str {
         r#"
-        (identifier) @call
-        (import_or_export (configurable_uri (uri (string_literal) @import)))
+        (import_or_export (library_import (import_specification (configurable_uri (uri (string_literal) @import)))))
         "#
     }
 
