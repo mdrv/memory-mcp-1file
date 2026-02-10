@@ -19,7 +19,7 @@
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/pomazanbohdan/memory-mcp-1file"
+        "url": "git+https://github.com/pomazanbohdan/memory-mcp-1file.git"
     },
     "homepage": "https://github.com/pomazanbohdan/memory-mcp-1file#readme",
     "bugs": {
