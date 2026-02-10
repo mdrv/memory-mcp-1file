@@ -1,22 +1,28 @@
+## -- Stage 1: Extract version from Cargo.toml (fallback for manual builds) --
+FROM alpine:3.23 AS version-extract
+COPY Cargo.toml /tmp/Cargo.toml
+RUN grep '^version' /tmp/Cargo.toml | head -1 | cut -d'"' -f2 > /tmp/VERSION
+
+## -- Stage 2: Runtime image --
 FROM alpine:3.23
 
-ARG VERSION=0.2.12
+ARG VERSION
 ARG REPO=pomazanbohdan/memory-mcp-1file
-ARG TARGETARCH=amd64
 
 # Install runtime dependencies (minimal)
-# ca-certificates for HTTPS, tzdata for timezones if needed
 RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
-# Download and extract the release binary
-# This assumes the release artifact follows the naming convention from scripts/build_all.sh
-RUN wget -q -O memory-mcp.tar.gz \
+# Resolve version: prefer build-arg, fall back to Cargo.toml extraction
+COPY --from=version-extract /tmp/VERSION /tmp/VERSION
+RUN VERSION=${VERSION:-$(cat /tmp/VERSION)} && \
+    echo "Installing memory-mcp v${VERSION}" && \
+    wget -q -O memory-mcp.tar.gz \
     "https://github.com/${REPO}/releases/download/v${VERSION}/memory-mcp-${VERSION}-x86_64-unknown-linux-musl.tar.gz" \
     && tar -xzf memory-mcp.tar.gz \
     && mv memory-mcp /usr/local/bin/memory-mcp \
-    && rm memory-mcp.tar.gz \
+    && rm memory-mcp.tar.gz /tmp/VERSION \
     && chmod +x /usr/local/bin/memory-mcp
 
 # Data directory setup
