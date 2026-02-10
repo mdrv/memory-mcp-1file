@@ -1,6 +1,6 @@
 FROM alpine:3.23
 
-ARG VERSION=0.1.4
+ARG VERSION=0.2.12
 ARG REPO=pomazanbohdan/memory-mcp-1file
 ARG TARGETARCH=amd64
 

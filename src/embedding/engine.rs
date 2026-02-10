@@ -223,34 +223,40 @@ impl EmbeddingEngine {
 
         let batch_token_ids = Tensor::new(flat_token_ids.as_slice(), &self.device)?
             .reshape((texts.len(), max_len))?;
+        drop(flat_token_ids);
 
         let batch_token_type_ids =
             Tensor::new(flat_type_ids.as_slice(), &self.device)?.reshape((texts.len(), max_len))?;
+        drop(flat_type_ids);
 
         // 3. Forward pass
         let embeddings = model.forward(&batch_token_ids, &batch_token_type_ids, None)?;
+        drop(batch_token_ids);
+        drop(batch_token_type_ids);
 
         // 4. Masked mean pooling — only average over real (non-padding) tokens
         let attention_mask = Tensor::new(flat_attention_mask.as_slice(), &self.device)?
             .reshape((texts.len(), max_len))?
             .to_dtype(DTYPE)?
             .unsqueeze(2)?; // (batch, seq, 1) for broadcasting
+        drop(flat_attention_mask);
         let masked = embeddings.broadcast_mul(&attention_mask)?;
+        drop(embeddings);
         let token_counts = attention_mask.sum(1)?; // (batch, 1) — real token count per sequence
+        drop(attention_mask);
         let pooled = masked.sum(1)?.broadcast_div(&token_counts)?;
+        drop(masked);
+        drop(token_counts);
 
         // 5. Normalize
-        // Normalize each vector in the batch independently
-        // pooled is (batch_size, hidden_size)
-        // sqr().sum(1) gives (batch_size) -> norms squared
         let norms_sq = pooled.sqr()?.sum(1)?;
         let norms = norms_sq.sqrt()?;
-        // reshape norms to (batch_size, 1) to broadcast
         let norms_reshaped = norms.reshape((texts.len(), 1))?;
         let normalized = pooled.broadcast_div(&norms_reshaped)?;
+        drop(pooled);
+        drop(norms_reshaped);
 
         // 6. Extract vectors
-        // normalized.to_vec2() returns Vec<Vec<f32>>
         let vectors: Vec<Vec<f32>> = normalized.to_vec2()?;
 
         Ok(vectors)

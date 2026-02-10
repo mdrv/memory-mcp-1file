@@ -97,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
     embedding.start_loading();
 
     let metrics = std::sync::Arc::new(memory_mcp::embedding::EmbeddingMetrics::new());
-    let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(1000);
+    let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(64);
     let adaptive_queue =
         memory_mcp::embedding::AdaptiveEmbeddingQueue::with_defaults(queue_tx, metrics.clone());
 

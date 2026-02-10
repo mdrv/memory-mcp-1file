@@ -6,9 +6,9 @@ use super::metrics::EmbeddingMetrics;
 use crate::embedding::EmbeddingRequest;
 use crate::Result;
 
-const DEFAULT_CAPACITY: usize = 1000;
-const HIGH_WATERMARK: f32 = 0.8;
-const THROTTLE_DELAY_MS: u64 = 50;
+const DEFAULT_CAPACITY: usize = 64;
+const HIGH_WATERMARK: f32 = 0.5;
+const THROTTLE_DELAY_MS: u64 = 500;
 
 pub struct AdaptiveQueueConfig {
     pub capacity: usize,

@@ -43,7 +43,7 @@ impl EmbeddingWorker {
     }
 
     pub async fn run(mut self) -> usize {
-        let mut batch = Vec::with_capacity(8);
+        let mut batch = Vec::with_capacity(2);
         let mut processed_count = 0;
         let deadline = tokio::time::sleep(Duration::from_millis(100));
         tokio::pin!(deadline);
@@ -56,9 +56,9 @@ impl EmbeddingWorker {
                     match recv_result {
                         Some(req) => {
                             batch.push(req);
-                            if batch.len() >= 8 {
+                            if batch.len() >= 2 {
                                 if self.process_batch(&mut batch).await {
-                                    processed_count += 8;
+                                    processed_count += 2;
                                 }
                                 deadline.as_mut().reset(tokio::time::Instant::now() + Duration::from_millis(100));
                             }

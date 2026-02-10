@@ -52,7 +52,7 @@ impl EmbeddingStore {
         write_txn.commit()?;
 
         Ok(Self {
-            ram_cache: Cache::builder().max_capacity(10_000).build(),
+            ram_cache: Cache::builder().max_capacity(2_000).build(),
             disk_cache: Arc::new(disk_cache),
             model_name: model_name.to_string(),
         })
