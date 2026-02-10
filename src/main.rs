@@ -219,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
             if !was_stdin_closed {
                 tracing::warn!(
                     "SIGTERM received while stdin still open. \
-                     Client may have violated MCP spec (expected: stdin close \u2192 SIGTERM). \
+                     Client may have violated MCP spec (expected: stdin close -> SIGTERM). \
                      Possible causes: client timeout, session crash, or external kill. \
                      Allowing 2s grace period for in-flight operations..."
                 );
