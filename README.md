@@ -132,6 +132,7 @@ Add this to your configuration file (e.g., `claude_desktop_config.json`):
         "--init",
         "-i",
         "--rm",
+        "--memory=3g",
         "-v", "mcp-data:/data",
         "-v", "/absolute/path/to/your/project:/project:ro",
         "ghcr.io/pomazanbohdan/memory-mcp-1file:latest"
@@ -151,14 +152,14 @@ Add this to your configuration file (e.g., `claude_desktop_config.json`):
 4.  **Name**: `memory`
 5.  **Command**:
     ```bash
-    docker run --init -i --rm -v mcp-data:/data -v "/Users/yourname/projects/current:/project:ro" ghcr.io/pomazanbohdan/memory-mcp-1file:latest
+    docker run --init -i --rm --memory=3g -v mcp-data:/data -v "/Users/yourname/projects/current:/project:ro" ghcr.io/pomazanbohdan/memory-mcp-1file:latest
     ```
     *(Remember to update the project path when switching workspaces if you need code indexing)*
 
 ### OpenCode / CLI
 
 ```bash
-docker run --init -i --rm \
+docker run --init -i --rm --memory=3g \
   -v mcp-data:/data \
   -v $(pwd):/project:ro \
   ghcr.io/pomazanbohdan/memory-mcp-1file:latest
