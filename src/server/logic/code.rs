@@ -32,6 +32,8 @@ pub async fn index_project(
         .unwrap_or("unknown")
         .to_string();
 
+    let force = params.force.unwrap_or(false);
+
     // Check current status
     if let Ok(Some(status)) = state.storage.get_index_status(&project_id).await {
         match status.status {
@@ -46,8 +48,18 @@ pub async fn index_project(
                     "message": "Indexing already in progress"
                 })));
             }
-            crate::types::IndexState::Completed => {
-                tracing::info!(project_id = %project_id, "Re-indexing project (was completed)");
+            crate::types::IndexState::Completed | crate::types::IndexState::EmbeddingPending => {
+                if !force {
+                    return Ok(success_json(json!({
+                        "project_id": project_id,
+                        "status": status.status.to_string(),
+                        "total_files": status.total_files,
+                        "indexed_files": status.indexed_files,
+                        "total_chunks": status.total_chunks,
+                        "message": "Project already indexed. File changes are tracked incrementally. Use force=true to re-index from scratch."
+                    })));
+                }
+                tracing::info!(project_id = %project_id, "Force re-indexing project");
             }
             _ => {}
         }
@@ -301,6 +313,7 @@ pub async fn delete_project(
         .await;
 
     let _ = state.storage.delete_index_status(&params.project_id).await;
+    let _ = state.storage.delete_file_hashes(&params.project_id).await;
 
     match state
         .storage
@@ -513,6 +526,7 @@ mod tests {
 
         let index_params = IndexProjectParams {
             path: project_path.to_string_lossy().to_string(),
+            force: None,
         };
 
         // 1. Trigger Indexing

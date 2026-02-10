@@ -136,6 +136,9 @@ pub struct GetStatusParams {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct IndexProjectParams {
     pub path: String,
+    /// Force full re-index even if project is already indexed (default: false)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub force: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

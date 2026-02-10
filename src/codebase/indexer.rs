@@ -29,6 +29,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
 
     state.storage.delete_project_chunks(&project_id).await?;
     state.storage.delete_project_symbols(&project_id).await?;
+    state.storage.delete_file_hashes(&project_id).await?;
 
     let files = scan_directory(project_path)?;
     status.total_files = files.len() as u32;
@@ -82,6 +83,14 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
                 continue;
             }
         };
+
+        // Store file-level hash for incremental indexing
+        let file_path_str = file_path.to_string_lossy().to_string();
+        let file_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+        let _ = state
+            .storage
+            .set_file_hash(&project_id, &file_path_str, &file_hash)
+            .await;
 
         // 1. Chunking (Vector Search) — cap chunks per file to bound memory
         let mut chunks = chunk_file(file_path, &content, &project_id);
@@ -291,11 +300,12 @@ pub async fn incremental_index(
                     tracing::warn!(path = %path_str, error = %e, "Failed to delete chunks");
                 }
             }
-            // Also delete symbols
+            // Also delete symbols and file hash
             let _ = state
                 .storage
                 .delete_symbols_by_path(project_id, &path_str)
                 .await;
+            let _ = state.storage.delete_file_hash(project_id, &path_str).await;
             continue;
         }
 
@@ -309,23 +319,10 @@ pub async fn incremental_index(
 
         let new_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
 
-        let existing_chunks = state
-            .storage
-            .get_chunks_by_path(project_id, &path_str)
-            .await
-            .unwrap_or_default();
-
-        // Check if file content has changed by reconstructing file hash
-        // from all stored chunks. Cannot compare new_hash (file-level) to
-        // content_hash (chunk-level) — they'll never match for multi-chunk files.
-        if !existing_chunks.is_empty() {
-            let mut hasher = blake3::Hasher::new();
-            for chunk in &existing_chunks {
-                hasher.update(chunk.content.as_bytes());
-            }
-            let existing_file_hash = hasher.finalize().to_hex().to_string();
-            if existing_file_hash == new_hash {
-                continue;
+        // Compare file-level hash from dedicated file_hashes table
+        if let Ok(Some(existing_hash)) = state.storage.get_file_hash(project_id, &path_str).await {
+            if existing_hash == new_hash {
+                continue; // File unchanged, skip re-indexing
             }
         }
 
@@ -405,6 +402,11 @@ pub async fn incremental_index(
             .await;
         }
 
+        // Store updated file hash
+        let _ = state
+            .storage
+            .set_file_hash(project_id, &path_str, &new_hash)
+            .await;
         updated += 1;
     }
 

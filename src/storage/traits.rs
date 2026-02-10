@@ -167,6 +167,22 @@ pub trait StorageBackend: Send + Sync {
     async fn list_projects(&self) -> Result<Vec<String>>;
 
     // ─────────────────────────────────────────────────────────────────────────
+    // File hash operations (incremental indexing)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Get stored file hash for incremental index comparison
+    async fn get_file_hash(&self, project_id: &str, file_path: &str) -> Result<Option<String>>;
+
+    /// Set/update file hash after indexing
+    async fn set_file_hash(&self, project_id: &str, file_path: &str, hash: &str) -> Result<()>;
+
+    /// Delete all file hashes for a project (used during full re-index)
+    async fn delete_file_hashes(&self, project_id: &str) -> Result<()>;
+
+    /// Delete file hash for a specific file (used when file is deleted)
+    async fn delete_file_hash(&self, project_id: &str, file_path: &str) -> Result<()>;
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Code Graph operations
     // ─────────────────────────────────────────────────────────────────────────
 

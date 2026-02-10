@@ -85,6 +85,15 @@ DEFINE FIELD started_at       ON index_status TYPE datetime;
 DEFINE FIELD completed_at     ON index_status TYPE option<datetime>;
 DEFINE FIELD error_message    ON index_status TYPE option<string>;
 
+-- File hashes table (for incremental indexing)
+DEFINE TABLE IF NOT EXISTS file_hashes SCHEMAFULL;
+DEFINE FIELD project_id   ON file_hashes TYPE string;
+DEFINE FIELD file_path    ON file_hashes TYPE string;
+DEFINE FIELD content_hash ON file_hashes TYPE string;
+DEFINE FIELD indexed_at   ON file_hashes TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_fh_project_path
+    ON file_hashes FIELDS project_id, file_path UNIQUE;
+
 -- Code symbols table
 DEFINE TABLE IF NOT EXISTS code_symbols SCHEMAFULL;
 DEFINE FIELD name           ON code_symbols TYPE string;

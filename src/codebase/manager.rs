@@ -54,8 +54,11 @@ impl CodebaseManager {
                 info!("No index found, starting full indexing...");
                 self.spawn_full_index();
             }
-            Some(s) if s.status == IndexState::Completed => {
-                info!("Index exists, will use watcher for updates");
+            Some(s)
+                if s.status == IndexState::Completed
+                    || s.status == IndexState::EmbeddingPending =>
+            {
+                info!(status = %s.status, "Index exists, will use watcher for updates");
             }
             Some(s) if s.status == IndexState::Indexing => {
                 warn!("Previous indexing was interrupted, restarting...");

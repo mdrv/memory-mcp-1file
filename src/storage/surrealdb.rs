@@ -750,6 +750,60 @@ impl StorageBackend for SurrealStorage {
         Ok(projects)
     }
 
+    async fn get_file_hash(&self, project_id: &str, file_path: &str) -> Result<Option<String>> {
+        let sql = "SELECT content_hash FROM file_hashes WHERE project_id = $project_id AND file_path = $file_path LIMIT 1";
+        let mut response = self
+            .db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .bind(("file_path", file_path.to_string()))
+            .await?;
+        let result: Vec<serde_json::Value> = response.take(0).unwrap_or_default();
+        Ok(result.into_iter().next().and_then(|v| {
+            v.get("content_hash")
+                .and_then(|h| h.as_str())
+                .map(String::from)
+        }))
+    }
+
+    async fn set_file_hash(&self, project_id: &str, file_path: &str, hash: &str) -> Result<()> {
+        let sql = r#"
+            UPSERT file_hashes SET
+                project_id = $project_id,
+                file_path = $file_path,
+                content_hash = $hash,
+                indexed_at = time::now()
+            WHERE project_id = $project_id AND file_path = $file_path
+        "#;
+        self.db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .bind(("file_path", file_path.to_string()))
+            .bind(("hash", hash.to_string()))
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_file_hashes(&self, project_id: &str) -> Result<()> {
+        let sql = "DELETE FROM file_hashes WHERE project_id = $project_id";
+        self.db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_file_hash(&self, project_id: &str, file_path: &str) -> Result<()> {
+        let sql =
+            "DELETE FROM file_hashes WHERE project_id = $project_id AND file_path = $file_path";
+        self.db
+            .query(sql)
+            .bind(("project_id", project_id.to_string()))
+            .bind(("file_path", file_path.to_string()))
+            .await?;
+        Ok(())
+    }
+
     async fn create_code_symbol(&self, mut symbol: CodeSymbol) -> Result<String> {
         let id = ("code_symbols", &symbol.unique_key());
         symbol.id = None;
@@ -872,8 +926,16 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn delete_symbols_by_path(&self, project_id: &str, file_path: &str) -> Result<usize> {
+        // symbol_relation is an edge table (from RELATE) — it has no file_path field.
+        // Delete relations where either endpoint is a symbol from this file.
         let sql = r#"
-            DELETE symbol_relation WHERE project_id = $project_id AND file_path = $file_path;
+            DELETE symbol_relation WHERE in IN (
+                SELECT id FROM code_symbols
+                WHERE project_id = $project_id AND file_path = $file_path
+            ) OR out IN (
+                SELECT id FROM code_symbols
+                WHERE project_id = $project_id AND file_path = $file_path
+            );
             DELETE code_symbols WHERE project_id = $project_id AND file_path = $file_path;
         "#;
         let _ = self
