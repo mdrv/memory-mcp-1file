@@ -32,13 +32,10 @@ struct Cli {
     #[arg(long, env = "LOG_LEVEL", default_value = "info")]
     log_level: String,
 
-    /// Idle timeout in minutes. Server exits if no requests for this duration. 0 = disabled.
-    #[arg(long, env, default_value = "30")]
+    /// Idle timeout in minutes. 0 = disabled (default, recommended for MCP stdio).
+    /// Per MCP spec, stdio servers should exit only on stdin close or signals.
+    #[arg(long, env, default_value = "0")]
     idle_timeout: u64,
-
-    /// Reconnect timeout in seconds before shutdown after connection loss.
-    #[arg(long, env, default_value = "10")]
-    reconnect_timeout: u64,
 
     #[arg(long)]
     list_models: bool,
@@ -139,100 +136,70 @@ async fn main() -> anyhow::Result<()> {
     // Auto-start codebase manager if /project exists
     let transport = rmcp::transport::io::stdio();
 
-    let mut service = rmcp::service::serve_server(server, transport).await?;
+    let service = rmcp::service::serve_server(server, transport).await?;
 
-    tracing::info!(
-        reconnect_timeout_sec = cli.reconnect_timeout,
-        "Server started, waiting for signals..."
-    );
+    if cli.idle_timeout > 0 {
+        tracing::warn!(
+            minutes = cli.idle_timeout,
+            "Non-zero idle timeout is not recommended for MCP stdio transport. \
+             Per MCP spec, stdio servers should exit only when stdin is closed or on signals."
+        );
+    }
+
+    tracing::info!("Server started, waiting for client disconnect or signals...");
 
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
-    let reconnect_delay = Duration::from_secs(cli.reconnect_timeout);
-    let idle_duration = if cli.idle_timeout > 0 {
-        Duration::from_secs(cli.idle_timeout * 60)
-    } else {
-        Duration::from_secs(u64::MAX) // effectively disabled
+    // MCP stdio lifecycle (spec 2025-03-26 & 2025-11-25):
+    //   - Server runs until client closes stdin (service.waiting() resolves)
+    //   - Server handles SIGINT/SIGTERM for graceful shutdown
+    //   - NO reconnect: stdio is process-level, stdin can't be "reopened"
+    //   - Idle timeout is optional and disabled by default
+    let idle_future = async {
+        if cli.idle_timeout > 0 {
+            tokio::time::sleep(Duration::from_secs(cli.idle_timeout * 60)).await;
+        } else {
+            // Disabled: never resolve
+            std::future::pending::<()>().await;
+        }
     };
+
     let shutdown_reason: &str;
 
-    // Reconnect loop: keep serving new MCP connections while the server is alive
-    loop {
-        tokio::select! {
-            res = service.waiting() => {
-                match res {
-                    Err(e) => {
-                        tracing::error!("Server error: {}", e);
-                        shutdown_reason = "server_error";
-                        break;
-                    }
-                    Ok(_) => {
-                        tracing::info!(
-                            timeout_sec = cli.reconnect_timeout,
-                            "Connection closed, attempting reconnect..."
-                        );
-
-                        // Wait briefly for client to reconnect
-                        tokio::time::sleep(Duration::from_millis(500)).await;
-
-                        // Re-create transport and serve again with same state
-                        let transport = rmcp::transport::io::stdio();
-                        let new_server = MemoryMcpServer::new(state.clone());
-
-                        match rmcp::service::serve_server(new_server, transport).await {
-                            Ok(new_service) => {
-                                service = new_service;
-                                tracing::info!("Reconnected successfully, serving new session");
-                                continue;
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to reconnect: {}", e);
-                                // Wait and retry once more
-                                tokio::time::sleep(reconnect_delay).await;
-                                let transport = rmcp::transport::io::stdio();
-                                let new_server = MemoryMcpServer::new(state.clone());
-                                match rmcp::service::serve_server(new_server, transport).await {
-                                    Ok(new_service) => {
-                                        service = new_service;
-                                        tracing::info!("Reconnected on retry");
-                                        continue;
-                                    }
-                                    Err(e2) => {
-                                        tracing::error!("Reconnect retry failed: {}", e2);
-                                        shutdown_reason = "reconnect_failed";
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
+    tokio::select! {
+        res = service.waiting() => {
+            match res {
+                Ok(_) => {
+                    tracing::info!("Client disconnected (stdin closed)");
+                    shutdown_reason = "client_disconnect";
                 }
-            },
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("Shutting down gracefully... (SIGINT)");
-                shutdown_reason = "sigint";
-                break;
-            },
-            _ = async {
-                #[cfg(unix)]
-                {
-                    terminate.recv().await;
+                Err(e) => {
+                    tracing::error!("Server error: {}", e);
+                    shutdown_reason = "server_error";
                 }
-                #[cfg(not(unix))]
-                {
-                    std::future::pending::<()>().await;
-                }
-            } => {
-                tracing::info!("Shutting down gracefully... (SIGTERM)");
-                shutdown_reason = "sigterm";
-                break;
-            },
-            _ = tokio::time::sleep(idle_duration) => {
-                tracing::info!(minutes = cli.idle_timeout, "Idle timeout reached, shutting down");
-                shutdown_reason = "idle_timeout";
-                break;
             }
+        },
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("Shutting down gracefully... (SIGINT)");
+            shutdown_reason = "sigint";
+        },
+        _ = async {
+            #[cfg(unix)]
+            {
+                terminate.recv().await;
+            }
+            #[cfg(not(unix))]
+            {
+                std::future::pending::<()>().await;
+            }
+        } => {
+            tracing::info!("Shutting down gracefully... (SIGTERM)");
+            shutdown_reason = "sigterm";
+        },
+        _ = idle_future => {
+            tracing::info!(minutes = cli.idle_timeout, "Idle timeout reached, shutting down");
+            shutdown_reason = "idle_timeout";
         }
     }
 
