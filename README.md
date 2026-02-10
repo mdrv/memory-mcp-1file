@@ -11,6 +11,7 @@ A high-performance, **pure Rust** Model Context Protocol (MCP) server that provi
 Works perfectly with:
 *   **Claude Desktop**
 *   **Claude Code** (CLI)
+*   **Gemini CLI**
 *   **Cursor**
 *   **OpenCode**
 *   **Cline** / **Roo Code**
@@ -28,7 +29,7 @@ Unlike other memory solutions that require a complex stack (Python + Vector DB +
 It combines:
 1.  **Vector Search** (FastEmbed) for semantic similarity.
 2.  **Knowledge Graph** (PetGraph) for entity relationships.
-3.  **Code Indexing** for understanding your codebase.
+3.  **Code Indexing** with **symbol graph** (calls, extends, implements) for deep codebase understanding.
 4.  **Hybrid Retrieval** (Reciprocal Rank Fusion) for best results.
 
 ### 🏗️ Architecture
@@ -114,9 +115,12 @@ Without this protocol, the agent loses context after compaction or session resta
 To use this MCP server with any client (**Claude Code**, **OpenCode**, **Cline**, etc.), use the following Docker command structure.
 
 **Key Requirements:**
-1.  **Memory Volume**: `-v mcp-data:/data` (Persists your graph and embeddings)
+1.  **Memory Volume**: `-v mcp-data:/data` (Persists your graph, embeddings, **and cached model weights**)
 2.  **Project Volume**: `-v $(pwd):/project:ro` (Allows the server to read and index your code)
 3.  **Init Process**: `--init` (Ensures the server shuts down cleanly)
+
+> [!TIP]
+> **Model Caching**: The embedding model (~1 GB) is stored in `/data/models/`. Using a **named volume** (`mcp-data:/data`) ensures the model is downloaded only once. Without a named volume, Docker creates a new anonymous volume on each `docker run`, causing the model to re-download every time.
 
 #### JSON Configuration (Claude Desktop, etc.)
 
@@ -244,13 +248,46 @@ Add to your MCP settings:
 > "args": ["-y", "memory-mcp-1file", "--", "--data-dir", "/path/to/data"]
 > ```
 
+### Gemini CLI
+
+Add to your `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "memory-mcp-1file"]
+    }
+  }
+}
+```
+
+Or with Docker:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "docker",
+      "args": [
+        "run", "--init", "-i", "--rm", "--memory=3g",
+        "-v", "mcp-data:/data",
+        "-v", "${workspaceFolder}:/project:ro",
+        "ghcr.io/pomazanbohdan/memory-mcp-1file:latest"
+      ]
+    }
+  }
+}
+```
+
 ---
 
 ## ✨ Key Features
 
 - **Semantic Memory**: Stores text with vector embeddings (`e5-small` by default) for "vibe-based" retrieval.
 - **Graph Memory**: Tracks entities (`User`, `Project`, `Tech`) and their relations (`uses`, `likes`). Supports PageRank-based traversal.
-- **Code Intelligence**: Indexes local project directories (AST-based chunking) for Rust, Python, TypeScript, JavaScript, Go, Java, and **Dart/Flutter**.
+- **Code Intelligence**: Indexes local project directories (AST-based chunking) for Rust, Python, TypeScript, JavaScript, Go, Java, and **Dart/Flutter**. Tracks **calls, imports, extends, implements, and mixin** relationships between symbols.
 - **Temporal Validity**: Memories can have `valid_from` and `valid_until` dates.
 - **SurrealDB Backend**: Fast, embedded, single-file database.
 
@@ -298,7 +335,7 @@ The server exposes **26 tools** to the AI model, organized into logical categori
 | `search_symbols` | Search for functions/classes by name. |
 | `get_callers` | Find functions that call a given symbol. |
 | `get_callees` | Find functions called by a given symbol. |
-| `get_related_symbols` | Get related symbols via graph traversal. |
+| `get_related_symbols` | Get related symbols via graph traversal (calls, extends, implements). |
 
 ### ⚙️ System & Maintenance
 | Tool | Description |
