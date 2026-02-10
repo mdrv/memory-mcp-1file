@@ -228,19 +228,27 @@ void main() {
 
         println!("=== DART SYMBOLS ===");
         for s in &symbols {
-            println!("  {} ({:?}) L{}-{}", s.name, s.symbol_type, s.start_line, s.end_line);
+            println!(
+                "  {} ({:?}) L{}-{}",
+                s.name, s.symbol_type, s.start_line, s.end_line
+            );
         }
 
         println!("\n=== DART REFERENCES ===");
         for r in &refs {
-            println!("  {} -> {} ({:?}) L{}", r.from_symbol, r.to_symbol, r.relation_type, r.line);
+            println!(
+                "  {} -> {} ({:?}) L{}",
+                r.from_symbol, r.to_symbol, r.relation_type, r.line
+            );
         }
 
-        let calls: Vec<_> = refs.iter()
+        let calls: Vec<_> = refs
+            .iter()
             .filter(|r| matches!(r.relation_type, CodeRelationType::Calls))
             .collect();
 
-        let imports: Vec<_> = refs.iter()
+        let imports: Vec<_> = refs
+            .iter()
             .filter(|r| matches!(r.relation_type, CodeRelationType::Imports))
             .collect();
 
@@ -257,17 +265,24 @@ void main() {
         assert!(!imports.is_empty(), "Should find at least 1 import");
 
         // Function calls found
-        assert!(calls.len() >= 2,
+        assert!(
+            calls.len() >= 2,
             "Should find at least 2 calls, got {}. All refs: {:?}",
             calls.len(),
-            refs.iter().map(|r| (&r.from_symbol, &r.to_symbol, &r.relation_type)).collect::<Vec<_>>()
+            refs.iter()
+                .map(|r| (&r.from_symbol, &r.to_symbol, &r.relation_type))
+                .collect::<Vec<_>>()
         );
 
         // Specific calls
-        assert!(calls.iter().any(|c| c.to_symbol == "print"),
-            "Should find call to 'print'");
-        assert!(calls.iter().any(|c| c.to_symbol == "runApp"),
-            "Should find call to 'runApp'");
+        assert!(
+            calls.iter().any(|c| c.to_symbol == "print"),
+            "Should find call to 'print'"
+        );
+        assert!(
+            calls.iter().any(|c| c.to_symbol == "runApp"),
+            "Should find call to 'runApp'"
+        );
     }
 
     #[test]
@@ -327,18 +342,26 @@ void _initPostHogAndRun(Widget child) {
 
         println!("=== REAL PROJECT: SYMBOLS ({}) ===", symbols.len());
         for s in &symbols {
-            println!("  {} ({:?}) L{}-{}", s.name, s.symbol_type, s.start_line, s.end_line);
+            println!(
+                "  {} ({:?}) L{}-{}",
+                s.name, s.symbol_type, s.start_line, s.end_line
+            );
         }
 
         println!("\n=== REAL PROJECT: ALL REFERENCES ({}) ===", refs.len());
         for r in &refs {
-            println!("  {} -> {} ({:?}) L{}", r.from_symbol, r.to_symbol, r.relation_type, r.line);
+            println!(
+                "  {} -> {} ({:?}) L{}",
+                r.from_symbol, r.to_symbol, r.relation_type, r.line
+            );
         }
 
-        let calls: Vec<_> = refs.iter()
+        let calls: Vec<_> = refs
+            .iter()
             .filter(|r| matches!(r.relation_type, CodeRelationType::Calls))
             .collect();
-        let imports: Vec<_> = refs.iter()
+        let imports: Vec<_> = refs
+            .iter()
             .filter(|r| matches!(r.relation_type, CodeRelationType::Imports))
             .collect();
 
@@ -352,29 +375,49 @@ void _initPostHogAndRun(Widget child) {
         }
 
         // Imports
-        assert!(imports.len() >= 3, "Should find at least 3 imports, got {}", imports.len());
+        assert!(
+            imports.len() >= 3,
+            "Should find at least 3 imports, got {}",
+            imports.len()
+        );
 
         // At least some calls should be found
-        assert!(calls.len() >= 3, "Should find at least 3 calls, got {}", calls.len());
+        assert!(
+            calls.len() >= 3,
+            "Should find at least 3 calls, got {}",
+            calls.len()
+        );
 
         // Specific expected calls
-        assert!(calls.iter().any(|c| c.to_symbol == "handle"), "Should find 'handle' method call");
-        assert!(calls.iter().any(|c| c.to_symbol == "runApp"), "Should find 'runApp' call");
+        assert!(
+            calls.iter().any(|c| c.to_symbol == "handle"),
+            "Should find 'handle' method call"
+        );
+        assert!(
+            calls.iter().any(|c| c.to_symbol == "runApp"),
+            "Should find 'runApp' call"
+        );
     }
 
     fn dump_node(node: tree_sitter::Node, source: &str, indent: usize) {
-        if !node.is_named() { 
+        if !node.is_named() {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 dump_node(child, source, indent);
             }
-            return; 
+            return;
         }
         let kind = node.kind();
-        if kind == "comment" || kind == "documentation_comment" { return; }
+        if kind == "comment" || kind == "documentation_comment" {
+            return;
+        }
 
         let text = node.utf8_text(source.as_bytes()).unwrap_or("???");
-        let short = if text.len() > 60 { format!("{}...", &text[..60]) } else { text.to_string() };
+        let short = if text.len() > 60 {
+            format!("{}...", &text[..60])
+        } else {
+            text.to_string()
+        };
         let short = short.replace('\n', "\\n");
 
         println!(
