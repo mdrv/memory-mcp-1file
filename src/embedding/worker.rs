@@ -218,7 +218,7 @@ mod tests {
     #[tokio::test]
     async fn test_worker_initialization() {
         let dir = tempdir().unwrap();
-        let storage = Arc::new(SurrealStorage::new(dir.path()).await.unwrap());
+        let storage = Arc::new(SurrealStorage::new(dir.path(), 768).await.unwrap());
         let store = Arc::new(EmbeddingStore::new(dir.path(), "mock").unwrap());
 
         let config = EmbeddingConfig {

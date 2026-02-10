@@ -20,7 +20,7 @@ impl TestContext {
 
         // Initialize Storage
         let storage = Arc::new(
-            SurrealStorage::new(db_path)
+            SurrealStorage::new(db_path, 768)
                 .await
                 .expect("Failed to init storage"),
         );
