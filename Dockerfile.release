@@ -23,9 +23,15 @@ RUN wget -q -O memory-mcp.tar.gz \
 RUN mkdir -p /data /project
 ENV DATA_DIR=/data
 ENV LOG_LEVEL=info
-ENV SURREAL_MEMORY_THRESHOLD=256mb
 
 # Persist data and allow project mounting
 VOLUME ["/data", "/project"]
+
+# Graceful shutdown via SIGTERM
+STOPSIGNAL SIGTERM
+
+# Health check: verify process is alive (MCP stdio doesn't expose HTTP)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD pgrep -x memory-mcp || exit 1
 
 CMD ["memory-mcp", "--data-dir", "/data"]

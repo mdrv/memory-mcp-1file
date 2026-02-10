@@ -68,6 +68,14 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        pid = std::process::id(),
+        model = %cli.model,
+        data_dir = %cli.data_dir.display(),
+        "memory-mcp starting"
+    );
+
     let storage = Arc::new(SurrealStorage::new(&cli.data_dir).await?);
 
     let model: ModelType = cli.model.parse().map_err(|e: String| anyhow::anyhow!(e))?;
