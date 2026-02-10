@@ -319,6 +319,26 @@ impl LanguageSupport for DartSupport {
 
     fn get_reference_query(&self) -> &str {
         r#"
+        ; Function calls: print("hello"), someFunction(42), setState(() {})
+        (((identifier) @call)
+         . (selector . (argument_part)))
+
+        ; Method calls: client.fetchData(url), Navigator.of(context)
+        ((selector
+          (unconditional_assignable_selector "." (identifier) @method_call))
+         . (selector (argument_part)))
+
+        ; Conditional method calls: widget?.build(context)
+        ((selector
+          (conditional_assignable_selector "?." (identifier) @method_call))
+         . (selector (argument_part)))
+
+        ; Cascade calls: list..add(1)
+        (cascade_section
+          (cascade_selector (identifier) @method_call)
+          (argument_part))
+
+        ; Imports
         (import_or_export (library_import (import_specification (configurable_uri (uri (string_literal) @import)))))
         "#
     }
