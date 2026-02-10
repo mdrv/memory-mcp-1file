@@ -315,8 +315,16 @@ pub async fn incremental_index(
             .await
             .unwrap_or_default();
 
-        if let Some(first_chunk) = existing_chunks.first() {
-            if first_chunk.content_hash == new_hash {
+        // Check if file content has changed by reconstructing file hash
+        // from all stored chunks. Cannot compare new_hash (file-level) to
+        // content_hash (chunk-level) — they'll never match for multi-chunk files.
+        if !existing_chunks.is_empty() {
+            let mut hasher = blake3::Hasher::new();
+            for chunk in &existing_chunks {
+                hasher.update(chunk.content.as_bytes());
+            }
+            let existing_file_hash = hasher.finalize().to_hex().to_string();
+            if existing_file_hash == new_hash {
                 continue;
             }
         }

@@ -20,6 +20,7 @@ impl EmbeddingCoordinator {
 
     pub async fn embed_for_record(
         &self,
+        id: &str,
         target: EmbedTarget,
         content: &str,
         old_content_hash: Option<&str>,
@@ -42,7 +43,7 @@ impl EmbeddingCoordinator {
                 let req = EmbeddingRequest {
                     text: content.to_string(),
                     responder: None,
-                    target: Some(super::worker::EmbeddingTarget::Chunk(String::new())),
+                    target: Some(super::worker::EmbeddingTarget::Chunk(id.to_string())),
                     retry_count: 0,
                 };
                 self.queue.send(req).await?;

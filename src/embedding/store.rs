@@ -25,19 +25,28 @@ impl EmbeddingStore {
 
         let write_txn = disk_cache.begin_write()?;
         {
-            let _table = write_txn.open_table(CACHE_TABLE)?;
             let mut meta = write_txn.open_table(META_TABLE)?;
 
             let stored_model = meta.get(META_KEY_MODEL)?.map(|v| v.value().to_string());
             if stored_model.as_deref() != Some(model_name) {
                 if stored_model.is_some() {
                     tracing::warn!(
-                        "Embedding model changed from {:?} to {}, cache will be rebuilt",
+                        "Embedding model changed from {:?} to {}, purging stale cache",
                         stored_model,
                         model_name
                     );
+                    // Drop and recreate cache table to purge stale entries
+                    drop(meta);
+                    write_txn.delete_table(CACHE_TABLE)?;
+                    let _table = write_txn.open_table(CACHE_TABLE)?;
+                    let mut meta = write_txn.open_table(META_TABLE)?;
+                    meta.insert(META_KEY_MODEL, model_name)?;
+                } else {
+                    let _table = write_txn.open_table(CACHE_TABLE)?;
+                    meta.insert(META_KEY_MODEL, model_name)?;
                 }
-                meta.insert(META_KEY_MODEL, model_name)?;
+            } else {
+                let _table = write_txn.open_table(CACHE_TABLE)?;
             }
         }
         write_txn.commit()?;

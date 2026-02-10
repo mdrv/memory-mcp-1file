@@ -65,11 +65,11 @@ impl AdaptiveEmbeddingQueue {
             tokio::time::sleep(self.config.throttle_delay).await;
         }
 
-        self.metrics.inc_queue();
         self.sender
             .send(req)
             .await
             .map_err(|_| crate::AppError::Internal("Embedding queue closed".to_string()))?;
+        self.metrics.inc_queue();
 
         Ok(())
     }

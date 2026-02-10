@@ -13,6 +13,7 @@ pub struct FileWatcher {
     paths: Vec<PathBuf>,
     watcher: Option<RecommendedWatcher>,
     debounce_duration: Duration,
+    cancel_tx: Option<mpsc::Sender<()>>,
 }
 
 impl FileWatcher {
@@ -21,6 +22,7 @@ impl FileWatcher {
             paths,
             watcher: None,
             debounce_duration: Duration::from_secs(2),
+            cancel_tx: None,
         }
     }
 
@@ -29,6 +31,7 @@ impl FileWatcher {
         F: Fn(Vec<PathBuf>) + Send + Sync + 'static,
     {
         let (tx, mut rx) = mpsc::channel(100);
+        let (cancel_tx, mut cancel_rx) = mpsc::channel::<()>(1);
         let debounce_duration = self.debounce_duration;
 
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
@@ -53,6 +56,7 @@ impl FileWatcher {
         }
 
         self.watcher = Some(watcher);
+        self.cancel_tx = Some(cancel_tx);
 
         // Debounce logic in a background task
         tokio::spawn(async move {
@@ -75,6 +79,10 @@ impl FileWatcher {
                             break;
                         }
                     }
+                    _ = cancel_rx.recv() => {
+                        info!("Watcher debounce cancelled, discarding {} pending paths", pending_paths.len());
+                        break;
+                    }
                     _ = tokio::time::sleep(sleep_duration) => {
                         if let Some(last) = last_event {
                             if last.elapsed() >= debounce_duration {
@@ -95,6 +103,7 @@ impl FileWatcher {
 
     pub fn stop(&mut self) {
         self.watcher = None;
+        self.cancel_tx = None;
         info!("Stopped file watcher");
     }
 }

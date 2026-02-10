@@ -146,7 +146,10 @@ pub async fn recall(state: &Arc<AppState>, params: RecallParams) -> anyhow::Resu
                     .into_iter()
                     .filter_map(|(idx, score)| reverse_map.get(&idx).map(|id| (id.clone(), score)))
                     .collect();
-                tuples.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                tuples.sort_by(|a, b| {
+                    b.1.partial_cmp(&a.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
                 tuples
             }
             _ => vec![],

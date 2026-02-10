@@ -67,13 +67,18 @@ impl SurrealStorage {
 }
 
 fn generate_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let rand: u64 = (now as u64) ^ (std::process::id() as u64);
-    format!("{:016x}{:04x}", now as u64, rand & 0xFFFF)
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tid = std::thread::current().id();
+    let input = format!("{}-{}-{:?}-{}", now, std::process::id(), tid, seq);
+    let hash = blake3::hash(input.as_bytes());
+    hash.to_hex()[..20].to_string()
 }
 
 fn parse_thing(id: &str) -> crate::Result<surrealdb::sql::Thing> {
@@ -552,18 +557,20 @@ impl StorageBackend for SurrealStorage {
         &self,
         id: &str,
         reason: Option<&str>,
-        _superseded_by: Option<&str>,
+        superseded_by: Option<&str>,
     ) -> Result<bool> {
         let sql = r#"
             UPDATE type::thing("memories", $id) SET 
                 valid_until = time::now(),
-                invalidation_reason = $reason
+                invalidation_reason = $reason,
+                superseded_by = $superseded_by
         "#;
         let mut response = self
             .db
             .query(sql)
             .bind(("id", id.to_string()))
             .bind(("reason", reason.map(String::from)))
+            .bind(("superseded_by", superseded_by.map(String::from)))
             .await?;
         let updated: Option<Memory> = response.take(0).ok().flatten();
         Ok(updated.is_some())

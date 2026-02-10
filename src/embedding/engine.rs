@@ -199,23 +199,26 @@ impl EmbeddingEngine {
             all_token_type_ids.push(type_ids);
         }
 
-        // 2. Pad and create batch tensors
-        // This is a naive implementation. For real batching with candle/huggingface,
-        // we should create a single Tensor with shape (batch_size, max_seq_len).
+        // 2. Pad and create batch tensors with attention mask
+        // Attention mask is required for correct mean pooling — padding tokens
+        // get non-zero BERT outputs that corrupt the average without masking.
 
         // Flatten for Tensor creation
         let mut flat_token_ids = Vec::with_capacity(texts.len() * max_len);
         let mut flat_type_ids = Vec::with_capacity(texts.len() * max_len);
+        let mut flat_attention_mask = Vec::with_capacity(texts.len() * max_len);
 
         for (ids, types) in all_token_ids.iter().zip(all_token_type_ids.iter()) {
             // Copy data
             flat_token_ids.extend_from_slice(ids);
             flat_type_ids.extend_from_slice(types);
+            flat_attention_mask.extend(std::iter::repeat_n(1u32, ids.len()));
 
             // Padding (0)
             let pad_len = max_len - ids.len();
             flat_token_ids.extend(std::iter::repeat_n(0, pad_len));
             flat_type_ids.extend(std::iter::repeat_n(0, pad_len));
+            flat_attention_mask.extend(std::iter::repeat_n(0u32, pad_len));
         }
 
         let batch_token_ids = Tensor::new(flat_token_ids.as_slice(), &self.device)?
@@ -227,9 +230,14 @@ impl EmbeddingEngine {
         // 3. Forward pass
         let embeddings = model.forward(&batch_token_ids, &batch_token_type_ids, None)?;
 
-        // 4. Mean pooling
-        let (_n_batch, seq_len, _hidden_size) = embeddings.dims3()?;
-        let pooled = (embeddings.sum(1)? / (seq_len as f64))?;
+        // 4. Masked mean pooling — only average over real (non-padding) tokens
+        let attention_mask = Tensor::new(flat_attention_mask.as_slice(), &self.device)?
+            .reshape((texts.len(), max_len))?
+            .to_dtype(DTYPE)?
+            .unsqueeze(2)?; // (batch, seq, 1) for broadcasting
+        let masked = embeddings.broadcast_mul(&attention_mask)?;
+        let token_counts = attention_mask.sum(1)?; // (batch, 1) — real token count per sequence
+        let pooled = masked.sum(1)?.broadcast_div(&token_counts)?;
 
         // 5. Normalize
         // Normalize each vector in the batch independently

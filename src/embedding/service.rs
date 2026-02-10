@@ -63,11 +63,19 @@ impl EmbeddingService {
             return;
         }
 
+        let status_clone = status.clone();
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
+            let rt = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .expect("Failed to build runtime");
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    tracing::error!("Failed to build embedding runtime: {}", e);
+                    status_clone.store(STATUS_ERROR, Ordering::SeqCst);
+                    return;
+                }
+            };
 
             rt.block_on(async {
                 let mut state = load_state.write().await;

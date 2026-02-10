@@ -68,7 +68,11 @@ pub fn rrf_merge(
     }
 
     let mut results: Vec<_> = scores.into_iter().collect();
-    results.sort_by(|a, b| b.1.combined_score.partial_cmp(&a.1.combined_score).unwrap());
+    results.sort_by(|a, b| {
+        b.1.combined_score
+            .partial_cmp(&a.1.combined_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(limit);
     results
 }

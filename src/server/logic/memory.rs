@@ -85,7 +85,12 @@ pub async fn update_memory(
 
     let update = MemoryUpdate {
         content: params.content,
-        memory_type: params.memory_type.and_then(|s| s.parse().ok()),
+        memory_type: match &params.memory_type {
+            Some(s) => Some(s.parse().map_err(|_| {
+                anyhow::anyhow!("Invalid memory_type: '{}'", s)
+            })?),
+            None => None,
+        },
         metadata: params.metadata,
         embedding,
         content_hash,
