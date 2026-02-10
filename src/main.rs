@@ -76,13 +76,12 @@ async fn main() -> anyhow::Result<()> {
         "memory-mcp starting"
     );
 
-    let storage = Arc::new(SurrealStorage::new(&cli.data_dir).await?);
-
     let model: ModelType = cli.model.parse().map_err(|e: String| anyhow::anyhow!(e))?;
 
+    let storage = Arc::new(SurrealStorage::new(&cli.data_dir, model.dimensions()).await?);
+
     if let Err(e) = storage.check_dimension(model.dimensions()).await {
-        tracing::error!("{}", e);
-        std::process::exit(1);
+        tracing::warn!("Dimension check: {}", e);
     }
 
     // Initialize Embedding Store (L1/L2 Cache)
@@ -151,6 +150,11 @@ async fn main() -> anyhow::Result<()> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
     let reconnect_delay = Duration::from_secs(cli.reconnect_timeout);
+    let idle_duration = if cli.idle_timeout > 0 {
+        Duration::from_secs(cli.idle_timeout * 60)
+    } else {
+        Duration::from_secs(u64::MAX) // effectively disabled
+    };
     let shutdown_reason: &str;
 
     // Reconnect loop: keep serving new MCP connections while the server is alive
@@ -222,6 +226,11 @@ async fn main() -> anyhow::Result<()> {
             } => {
                 tracing::info!("Shutting down gracefully... (SIGTERM)");
                 shutdown_reason = "sigterm";
+                break;
+            },
+            _ = tokio::time::sleep(idle_duration) => {
+                tracing::info!(minutes = cli.idle_timeout, "Idle timeout reached, shutting down");
+                shutdown_reason = "idle_timeout";
                 break;
             }
         }

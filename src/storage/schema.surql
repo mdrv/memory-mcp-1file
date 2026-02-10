@@ -1,6 +1,6 @@
 -- Memory MCP Server Schema
 -- SurrealDB 2.x with kv-surrealkv
--- HNSW DIMENSION 768 for e5_multi model
+-- HNSW DIMENSION set dynamically from model at runtime
 
 -- Define analyzers for full-text search (BM25)
 DEFINE ANALYZER IF NOT EXISTS simple TOKENIZERS blank, class FILTERS lowercase;
@@ -21,8 +21,8 @@ DEFINE FIELD invalidation_reason ON memories TYPE option<string>;
 DEFINE FIELD content_hash     ON memories TYPE option<string>;
 DEFINE FIELD embedding_state  ON memories TYPE string DEFAULT 'none';
 
-DEFINE INDEX IF NOT EXISTS idx_memories_vec ON memories 
-    FIELDS embedding HNSW DIMENSION 768 DIST COSINE;
+DEFINE INDEX OVERWRITE idx_memories_vec ON memories 
+    FIELDS embedding HNSW DIMENSION {dim} DIST COSINE;
 DEFINE INDEX IF NOT EXISTS idx_memories_fts ON memories 
     FIELDS content SEARCH ANALYZER simple BM25;
 
@@ -36,8 +36,8 @@ DEFINE FIELD content_hash     ON entities TYPE option<string>;
 DEFINE FIELD user_id          ON entities TYPE option<string>;
 DEFINE FIELD created_at       ON entities TYPE datetime DEFAULT time::now();
 
-DEFINE INDEX IF NOT EXISTS idx_entities_vec ON entities 
-    FIELDS embedding HNSW DIMENSION 768 DIST COSINE;
+DEFINE INDEX OVERWRITE idx_entities_vec ON entities 
+    FIELDS embedding HNSW DIMENSION {dim} DIST COSINE;
 DEFINE INDEX IF NOT EXISTS idx_entities_fts ON entities 
     FIELDS name SEARCH ANALYZER simple BM25;
 
@@ -65,8 +65,8 @@ DEFINE FIELD content_hash     ON code_chunks TYPE string;
 DEFINE FIELD project_id       ON code_chunks TYPE option<string>;
 DEFINE FIELD indexed_at       ON code_chunks TYPE datetime DEFAULT time::now();
 
-DEFINE INDEX IF NOT EXISTS idx_chunks_vec ON code_chunks 
-    FIELDS embedding HNSW DIMENSION 768 DIST COSINE;
+DEFINE INDEX OVERWRITE idx_chunks_vec ON code_chunks 
+    FIELDS embedding HNSW DIMENSION {dim} DIST COSINE;
 DEFINE INDEX IF NOT EXISTS idx_chunks_fts ON code_chunks 
     FIELDS content SEARCH ANALYZER simple BM25;
 DEFINE INDEX IF NOT EXISTS idx_chunks_path ON code_chunks FIELDS file_path;
@@ -100,5 +100,5 @@ DEFINE FIELD indexed_at     ON code_symbols TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS idx_symbols_name ON code_symbols FIELDS name;
 DEFINE INDEX IF NOT EXISTS idx_symbols_project ON code_symbols FIELDS project_id;
 DEFINE INDEX IF NOT EXISTS idx_symbols_path ON code_symbols FIELDS file_path;
-DEFINE INDEX IF NOT EXISTS idx_symbols_vec ON code_symbols 
-    FIELDS embedding HNSW DIMENSION 768 DIST COSINE;
+DEFINE INDEX OVERWRITE idx_symbols_vec ON code_symbols 
+    FIELDS embedding HNSW DIMENSION {dim} DIST COSINE;

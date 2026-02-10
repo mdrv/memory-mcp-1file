@@ -19,15 +19,15 @@ pub struct SurrealStorage {
 }
 
 impl SurrealStorage {
-    pub async fn new(data_dir: &Path) -> Result<Self> {
+    pub async fn new(data_dir: &Path, model_dim: usize) -> Result<Self> {
         let db_path = data_dir.join("db");
         std::fs::create_dir_all(&db_path)?;
 
         let db: Surreal<Db> = Surreal::new::<SurrealKv>(db_path).await?;
         db.use_ns("memory").use_db("main").await?;
 
-        let schema = include_str!("schema.surql");
-        db.query(schema).await?;
+        let schema = include_str!("schema.surql").replace("{dim}", &model_dim.to_string());
+        db.query(&schema).await?;
 
         Ok(Self { db })
     }
@@ -41,10 +41,22 @@ impl SurrealStorage {
                 if let Some(idx_def) = indexes.get("idx_memories_vec").and_then(|v| v.as_str()) {
                     if let Some(dim) = self.extract_dimension(idx_def) {
                         if dim != expected {
-                            return Err(crate::types::AppError::DimensionMismatch {
-                                model: expected,
-                                db: dim,
-                            });
+                            tracing::warn!(
+                                old = dim,
+                                new = expected,
+                                "Dimension mismatch detected, rebuilding vector indices"
+                            );
+                            self.rebuild_vector_indices(expected).await?;
+                            self.db
+                                .query(
+                                    "UPDATE memories SET embedding_state = 'stale', embedding = NONE;
+                                     UPDATE entities SET embedding = NONE;
+                                     UPDATE code_chunks SET embedding = NONE;
+                                     UPDATE code_symbols SET embedding = NONE;",
+                                )
+                                .await?;
+                            tracing::info!("Indices rebuilt, old embeddings marked stale");
+                            return Ok(());
                         }
                         tracing::info!(model = expected, db = dim, "Dimension check passed");
                         return Ok(());
@@ -53,6 +65,22 @@ impl SurrealStorage {
             }
         }
 
+        Ok(())
+    }
+
+    async fn rebuild_vector_indices(&self, dim: usize) -> Result<()> {
+        let queries = format!(
+            "REMOVE INDEX IF EXISTS idx_memories_vec ON memories;
+             REMOVE INDEX IF EXISTS idx_entities_vec ON entities;
+             REMOVE INDEX IF EXISTS idx_chunks_vec ON code_chunks;
+             REMOVE INDEX IF EXISTS idx_symbols_vec ON code_symbols;
+             DEFINE INDEX idx_memories_vec ON memories FIELDS embedding HNSW DIMENSION {d} DIST COSINE;
+             DEFINE INDEX idx_entities_vec ON entities FIELDS embedding HNSW DIMENSION {d} DIST COSINE;
+             DEFINE INDEX idx_chunks_vec ON code_chunks FIELDS embedding HNSW DIMENSION {d} DIST COSINE;
+             DEFINE INDEX idx_symbols_vec ON code_symbols FIELDS embedding HNSW DIMENSION {d} DIST COSINE;",
+            d = dim
+        );
+        self.db.query(&queries).await?;
         Ok(())
     }
 
@@ -1215,7 +1243,16 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn shutdown(&self) -> Result<()> {
-        self.db.query("RETURN true").await?;
+        // Force WAL flush: SELECT count() touches the storage engine,
+        // ensuring pending writes from any table are committed to disk.
+        self.db
+            .query(
+                "SELECT count() AS c FROM memories GROUP ALL;
+                 SELECT count() AS c FROM entities GROUP ALL;
+                 SELECT count() AS c FROM code_chunks GROUP ALL;",
+            )
+            .await?;
+        tracing::info!("Storage flushed successfully");
         Ok(())
     }
 }
@@ -1229,7 +1266,7 @@ mod tests {
 
     async fn setup_test_db() -> (SurrealStorage, tempfile::TempDir) {
         let tmp = tempdir().unwrap();
-        let storage = SurrealStorage::new(tmp.path()).await.unwrap();
+        let storage = SurrealStorage::new(tmp.path(), 768).await.unwrap();
         (storage, tmp)
     }
 
