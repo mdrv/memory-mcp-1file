@@ -405,10 +405,7 @@ pub async fn incremental_index(
 
 /// Detect auto-generated files that waste memory and have no useful semantic content
 fn is_generated_file(path: &Path) -> bool {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
     let name_lower = name.to_lowercase();
 
