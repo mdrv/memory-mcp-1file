@@ -399,6 +399,101 @@ void _initPostHogAndRun(Widget child) {
         );
     }
 
+    #[test]
+    fn test_dart_extends_implements() {
+        let content = r#"
+import 'package:flutter/material.dart';
+
+abstract class BaseRepository {
+  void fetch();
+}
+
+mixin LoggingMixin {
+  void log(String msg) {}
+}
+
+class UserRepository extends BaseRepository with LoggingMixin implements Serializable {
+  @override
+  void fetch() {
+    log('fetching');
+  }
+}
+
+class AdminRepository extends UserRepository implements Auditable, Cacheable {
+  @override
+  void fetch() {
+    super.fetch();
+  }
+}
+"#;
+        let path = PathBuf::from("lib/models/repository.dart");
+        let (symbols, refs) = CodeParser::parse_file(&path, content, "test");
+
+        println!("=== EXTENDS/IMPLEMENTS: SYMBOLS ({}) ===", symbols.len());
+        for s in &symbols {
+            println!(
+                "  {} ({:?}) L{}-{}",
+                s.name, s.symbol_type, s.start_line, s.end_line
+            );
+        }
+
+        println!("\n=== EXTENDS/IMPLEMENTS: REFERENCES ({}) ===", refs.len());
+        for r in &refs {
+            println!(
+                "  {} -> {} ({:?}) L{}",
+                r.from_symbol, r.to_symbol, r.relation_type, r.line
+            );
+        }
+
+        let extends: Vec<_> = refs
+            .iter()
+            .filter(|r| matches!(r.relation_type, CodeRelationType::Extends))
+            .collect();
+        let implements: Vec<_> = refs
+            .iter()
+            .filter(|r| matches!(r.relation_type, CodeRelationType::Implements))
+            .collect();
+
+        println!("\n=== EXTENDS ({}) ===", extends.len());
+        for e in &extends {
+            println!("  {} extends {}", e.from_symbol, e.to_symbol);
+        }
+        println!("\n=== IMPLEMENTS ({}) ===", implements.len());
+        for i in &implements {
+            println!("  {} implements {}", i.from_symbol, i.to_symbol);
+        }
+
+        // UserRepository extends BaseRepository
+        assert!(
+            extends.iter().any(|e| e.to_symbol == "BaseRepository"),
+            "Should find 'extends BaseRepository'"
+        );
+
+        // AdminRepository extends UserRepository
+        assert!(
+            extends.iter().any(|e| e.to_symbol == "UserRepository"),
+            "Should find 'extends UserRepository'"
+        );
+
+        // UserRepository implements Serializable
+        assert!(
+            implements.iter().any(|i| i.to_symbol == "Serializable"),
+            "Should find 'implements Serializable'"
+        );
+
+        // AdminRepository implements Auditable
+        assert!(
+            implements.iter().any(|i| i.to_symbol == "Auditable"),
+            "Should find 'implements Auditable'"
+        );
+
+        // UserRepository with LoggingMixin (captured as implements)
+        assert!(
+            implements.iter().any(|i| i.to_symbol == "LoggingMixin"),
+            "Should find 'with LoggingMixin' (as implements)"
+        );
+    }
+
     fn dump_node(node: tree_sitter::Node, source: &str, indent: usize) {
         if !node.is_named() {
             let mut cursor = node.walk();

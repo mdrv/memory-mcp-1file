@@ -69,6 +69,7 @@ impl LanguageSupport for RustSupport {
         (call_expression function: (field_expression field: (field_identifier) @method_call))
         (call_expression function: (scoped_identifier name: (identifier) @call))
         (use_declaration argument: (scoped_identifier name: (identifier) @import))
+        (impl_item trait: (type_identifier) @implements)
         "#
     }
 
@@ -88,6 +89,8 @@ impl LanguageSupport for RustSupport {
         match kind {
             "call" | "method_call" => CodeRelationType::Calls,
             "import" => CodeRelationType::Imports,
+            "implements" => CodeRelationType::Implements,
+            "extends" => CodeRelationType::Extends,
             _ => CodeRelationType::Calls,
         }
     }
@@ -112,6 +115,7 @@ impl LanguageSupport for PythonSupport {
         (call function: (attribute attribute: (identifier) @method_call))
         (import_statement name: (dotted_name (identifier) @import))
         (import_from_statement name: (dotted_name (identifier) @import))
+        (class_definition superclasses: (argument_list (identifier) @extends))
         "#
     }
 
@@ -127,6 +131,8 @@ impl LanguageSupport for PythonSupport {
         match kind {
             "call" | "method_call" => CodeRelationType::Calls,
             "import" => CodeRelationType::Imports,
+            "implements" => CodeRelationType::Implements,
+            "extends" => CodeRelationType::Extends,
             _ => CodeRelationType::Calls,
         }
     }
@@ -153,6 +159,8 @@ impl LanguageSupport for TypeScriptSupport {
         (call_expression function: (identifier) @call)
         (call_expression function: (member_expression property: (property_identifier) @method_call))
         (import_statement source: (string (string_fragment) @import))
+        (class_heritage (extends_clause value: (identifier) @extends))
+        (class_heritage (implements_clause (type) @implements))
         "#
     }
 
@@ -170,6 +178,8 @@ impl LanguageSupport for TypeScriptSupport {
         match kind {
             "call" | "method_call" => CodeRelationType::Calls,
             "import" => CodeRelationType::Imports,
+            "implements" => CodeRelationType::Implements,
+            "extends" => CodeRelationType::Extends,
             _ => CodeRelationType::Calls,
         }
     }
@@ -194,6 +204,7 @@ impl LanguageSupport for JavaScriptSupport {
         (call_expression function: (identifier) @call)
         (call_expression function: (member_expression property: (property_identifier) @method_call))
         (import_statement source: (string (string_fragment) @import))
+        (class_heritage (identifier) @extends)
         "#
     }
 
@@ -210,6 +221,8 @@ impl LanguageSupport for JavaScriptSupport {
         match kind {
             "call" | "method_call" => CodeRelationType::Calls,
             "import" => CodeRelationType::Imports,
+            "implements" => CodeRelationType::Implements,
+            "extends" => CodeRelationType::Extends,
             _ => CodeRelationType::Calls,
         }
     }
@@ -250,6 +263,8 @@ impl LanguageSupport for GoSupport {
         match kind {
             "call" | "method_call" => CodeRelationType::Calls,
             "import" => CodeRelationType::Imports,
+            "implements" => CodeRelationType::Implements,
+            "extends" => CodeRelationType::Extends,
             _ => CodeRelationType::Calls,
         }
     }
@@ -274,6 +289,8 @@ impl LanguageSupport for JavaSupport {
         r#"
         (method_invocation name: (identifier) @call)
         (import_declaration name: (scoped_identifier) @import)
+        (class_declaration superclass: (superclass (type_identifier) @extends))
+        (class_declaration interfaces: (super_interfaces (type_list (type_identifier) @implements)))
         "#
     }
 
@@ -291,6 +308,8 @@ impl LanguageSupport for JavaSupport {
         match kind {
             "call" | "method_call" => CodeRelationType::Calls,
             "import" => CodeRelationType::Imports,
+            "implements" => CodeRelationType::Implements,
+            "extends" => CodeRelationType::Extends,
             _ => CodeRelationType::Calls,
         }
     }
@@ -340,6 +359,17 @@ impl LanguageSupport for DartSupport {
 
         ; Imports
         (import_or_export (library_import (import_specification (configurable_uri (uri (string_literal) @import)))))
+
+        ; Extends: class Foo extends Bar
+        (class_definition
+          superclass: (superclass (type_identifier) @extends))
+
+        ; Implements: class Foo implements Bar, Baz
+        (class_definition
+          interfaces: (interfaces (type_identifier) @implements))
+
+        ; With (mixins): class Foo extends Bar with Mixin1
+        (superclass (mixins (type_identifier) @implements))
         "#
     }
 
@@ -357,6 +387,8 @@ impl LanguageSupport for DartSupport {
         match kind {
             "call" | "method_call" => CodeRelationType::Calls,
             "import" => CodeRelationType::Imports,
+            "implements" => CodeRelationType::Implements,
+            "extends" => CodeRelationType::Extends,
             _ => CodeRelationType::Calls,
         }
     }
