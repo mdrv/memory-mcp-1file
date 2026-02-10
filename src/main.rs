@@ -1,5 +1,6 @@
 use clap::Parser;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -146,7 +147,25 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Periodic storage checkpoint (insurance against SIGKILL from misbehaving clients)
+    let checkpoint_storage = state.storage.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 min
+        interval.tick().await; // Skip immediate first tick
+        loop {
+            interval.tick().await;
+            if let Err(e) = checkpoint_storage.shutdown().await {
+                tracing::warn!("Periodic checkpoint failed: {}", e);
+            } else {
+                tracing::debug!("Periodic storage checkpoint completed");
+            }
+        }
+    });
+
     tracing::info!("Server started, waiting for client disconnect or signals...");
+
+    // Track stdin state for anomaly detection
+    let stdin_closed = Arc::new(AtomicBool::new(false));
 
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
@@ -166,9 +185,11 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let shutdown_reason: &str;
+    let stdin_closed_flag = stdin_closed.clone();
 
     tokio::select! {
         res = service.waiting() => {
+            stdin_closed_flag.store(true, Ordering::SeqCst);
             match res {
                 Ok(_) => {
                     tracing::info!("Client disconnected (stdin closed)");
@@ -194,7 +215,19 @@ async fn main() -> anyhow::Result<()> {
                 std::future::pending::<()>().await;
             }
         } => {
-            tracing::info!("Shutting down gracefully... (SIGTERM)");
+            let was_stdin_closed = stdin_closed.load(Ordering::SeqCst);
+            if !was_stdin_closed {
+                tracing::warn!(
+                    "SIGTERM received while stdin still open. \
+                     Client may have violated MCP spec (expected: stdin close \u2192 SIGTERM). \
+                     Possible causes: client timeout, session crash, or external kill. \
+                     Allowing 2s grace period for in-flight operations..."
+                );
+                // Grace period: allow in-flight operations to complete and data to flush
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            } else {
+                tracing::info!("SIGTERM received after stdin closed (normal MCP shutdown)");
+            }
             shutdown_reason = "sigterm";
         },
         _ = idle_future => {
