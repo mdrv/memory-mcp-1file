@@ -132,7 +132,7 @@ async fn main() -> anyhow::Result<()> {
     // Auto-start codebase manager if /project exists
     let transport = rmcp::transport::io::stdio();
 
-    let service = rmcp::service::serve_server(server, transport).await?;
+    let mut service = rmcp::service::serve_server(server, transport).await?;
 
     tracing::info!(
         reconnect_timeout_sec = cli.reconnect_timeout,
@@ -142,55 +142,80 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
-    let reconnect_timeout = Duration::from_secs(cli.reconnect_timeout);
+    let reconnect_delay = Duration::from_secs(cli.reconnect_timeout);
     let shutdown_reason: &str;
 
-    tokio::select! {
-        res = service.waiting() => {
-            match res {
-                Err(e) => {
-                    tracing::error!("Server error: {}", e);
-                    shutdown_reason = "server_error";
-                }
-                Ok(_) => {
-                    tracing::info!(
-                        timeout_sec = cli.reconnect_timeout,
-                        "Connection closed, waiting for reconnect..."
-                    );
+    // Reconnect loop: keep serving new MCP connections while the server is alive
+    loop {
+        tokio::select! {
+            res = service.waiting() => {
+                match res {
+                    Err(e) => {
+                        tracing::error!("Server error: {}", e);
+                        shutdown_reason = "server_error";
+                        break;
+                    }
+                    Ok(_) => {
+                        tracing::info!(
+                            timeout_sec = cli.reconnect_timeout,
+                            "Connection closed, attempting reconnect..."
+                        );
 
-                    let reconnected = tokio::select! {
-                        _ = tokio::time::sleep(reconnect_timeout) => false,
-                        _ = tokio::signal::ctrl_c() => {
-                            tracing::info!("Received SIGINT during reconnect wait");
-                            false
+                        // Wait briefly for client to reconnect
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+
+                        // Re-create transport and serve again with same state
+                        let transport = rmcp::transport::io::stdio();
+                        let new_server = MemoryMcpServer::new(state.clone());
+
+                        match rmcp::service::serve_server(new_server, transport).await {
+                            Ok(new_service) => {
+                                service = new_service;
+                                tracing::info!("Reconnected successfully, serving new session");
+                                continue;
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to reconnect: {}", e);
+                                // Wait and retry once more
+                                tokio::time::sleep(reconnect_delay).await;
+                                let transport = rmcp::transport::io::stdio();
+                                let new_server = MemoryMcpServer::new(state.clone());
+                                match rmcp::service::serve_server(new_server, transport).await {
+                                    Ok(new_service) => {
+                                        service = new_service;
+                                        tracing::info!("Reconnected on retry");
+                                        continue;
+                                    }
+                                    Err(e2) => {
+                                        tracing::error!("Reconnect retry failed: {}", e2);
+                                        shutdown_reason = "reconnect_failed";
+                                        break;
+                                    }
+                                }
+                            }
                         }
-                    };
-
-                    if reconnected {
-                        shutdown_reason = "reconnected";
-                    } else {
-                        tracing::info!("No reconnect within timeout, shutting down");
-                        shutdown_reason = "connection_timeout";
                     }
                 }
+            },
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Shutting down gracefully... (SIGINT)");
+                shutdown_reason = "sigint";
+                break;
+            },
+            _ = async {
+                #[cfg(unix)]
+                {
+                    terminate.recv().await;
+                }
+                #[cfg(not(unix))]
+                {
+                    std::future::pending::<()>().await;
+                }
+            } => {
+                tracing::info!("Shutting down gracefully... (SIGTERM)");
+                shutdown_reason = "sigterm";
+                break;
             }
-        },
-        _ = tokio::signal::ctrl_c() => {
-            tracing::info!("Shutting down gracefully... (SIGINT)");
-            shutdown_reason = "sigint";
-        },
-        _ = async {
-            #[cfg(unix)]
-            {
-                terminate.recv().await;
-            }
-            #[cfg(not(unix))]
-            {
-                std::future::pending::<()>().await;
-            }
-        } => {
-            tracing::info!("Shutting down gracefully... (SIGTERM)");
-            shutdown_reason = "sigterm";
         }
     }
 

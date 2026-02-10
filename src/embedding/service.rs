@@ -115,7 +115,13 @@ impl EmbeddingService {
                     });
 
                     status.store(STATUS_READY, Ordering::SeqCst);
-                    tracing::info!("Embedding model ready");
+                    let elapsed = rt.block_on(async {
+                        load_state.read().await.started_at.elapsed()
+                    });
+                    tracing::info!(
+                        elapsed_sec = format!("{:.1}", elapsed.as_secs_f64()),
+                        "Embedding model ready"
+                    );
                 }
                 Err(e) => {
                     rt.block_on(async {
