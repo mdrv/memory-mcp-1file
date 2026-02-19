@@ -101,15 +101,15 @@ pub async fn recall(state: &Arc<AppState>, params: RecallParams) -> anyhow::Resu
 
                 for entity in &entities {
                     if let Some(ref id) = entity.id {
-                        let id_str = id.id.to_string();
+                        let id_str = crate::types::record_key_to_string(&id.key);
                         let idx = graph.add_node(id_str.clone());
                         node_map.insert(id_str, idx);
                     }
                 }
 
                 for relation in &relations {
-                    let from_str = relation.from_entity.id.to_string();
-                    let to_str = relation.to_entity.id.to_string();
+                    let from_str = crate::types::record_key_to_string(&relation.from_entity.key);
+                    let to_str = crate::types::record_key_to_string(&relation.to_entity.key);
                     if let (Some(&from_idx), Some(&to_idx)) =
                         (node_map.get(&from_str), node_map.get(&to_str))
                     {

@@ -10,7 +10,7 @@ use crate::server::params::{
     CreateEntityParams, CreateRelationParams, DetectCommunitiesParams, GetRelatedParams,
 };
 use crate::storage::StorageBackend;
-use crate::types::{Direction, Entity, Relation, ThingId};
+use crate::types::{Datetime, Direction, Entity, Relation, RecordId, ThingId};
 
 use super::{error_response, strip_entity_embeddings, success_json};
 
@@ -63,14 +63,14 @@ pub async fn create_relation(
 
     let relation = Relation {
         id: None,
-        from_entity: surrealdb::sql::Thing::from((
-            "entities".to_string(),
+        from_entity: RecordId::new(
+            "entities",
             from_id.id().to_string(),
-        )),
-        to_entity: surrealdb::sql::Thing::from(("entities".to_string(), to_id.id().to_string())),
+        ),
+        to_entity: RecordId::new("entities", to_id.id().to_string()),
         relation_type: params.relation_type,
         weight: params.weight.unwrap_or(1.0).clamp(0.0, 1.0),
-        valid_from: surrealdb::sql::Datetime::default(),
+        valid_from: Datetime::default(),
         valid_until: None,
     };
 
@@ -131,15 +131,15 @@ pub async fn detect_communities(
 
     for entity in &entities {
         if let Some(ref id) = entity.id {
-            let id_str = id.id.to_string();
+            let id_str = crate::types::record_key_to_string(&id.key);
             let idx = graph.add_node(id_str.clone());
             node_map.insert(id_str, idx);
         }
     }
 
     for relation in &relations {
-        let from_str = relation.from_entity.id.to_string();
-        let to_str = relation.to_entity.id.to_string();
+        let from_str = crate::types::record_key_to_string(&relation.from_entity.key);
+        let to_str = crate::types::record_key_to_string(&relation.to_entity.key);
         if let (Some(&from_idx), Some(&to_idx)) = (node_map.get(&from_str), node_map.get(&to_str)) {
             graph.add_edge(from_idx, to_idx, relation.weight);
         }

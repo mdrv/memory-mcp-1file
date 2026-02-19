@@ -110,8 +110,8 @@ impl ThingId {
     ///     .bind(("id", thing))
     ///     .await?;
     /// ```
-    pub fn to_thing(&self) -> surrealdb::sql::Thing {
-        surrealdb::sql::Thing::from((self.table().to_string(), self.id().to_string()))
+    pub fn to_thing(&self) -> super::Thing {
+        super::RecordId::new(self.table().to_string(), self.id().to_string())
     }
 }
 
@@ -131,7 +131,7 @@ impl ThingId {
 ///     .bind(("ids", things))
 ///     .await?;
 /// ```
-pub fn things_from_ids(table: &str, ids: &[String]) -> Result<Vec<surrealdb::sql::Thing>> {
+pub fn things_from_ids(table: &str, ids: &[String]) -> Result<Vec<super::Thing>> {
     ids.iter()
         .map(|id| ThingId::new(table, id).map(|t| t.to_thing()))
         .collect()

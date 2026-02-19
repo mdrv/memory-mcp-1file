@@ -353,6 +353,7 @@ impl ServerHandler for MemoryMcpServer {
             server_info: Implementation {
                 name: "memory-mcp".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
+                description: None,
                 title: None,
                 icons: None,
                 website_url: None,

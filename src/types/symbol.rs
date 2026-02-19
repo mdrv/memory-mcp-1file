@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::{Datetime, Thing};
+use super::{Datetime, SurrealValue, Thing};
 
 fn default_datetime() -> Datetime {
     Datetime::default()
@@ -57,7 +57,7 @@ impl std::fmt::Display for CodeRelationType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct CodeSymbol {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
@@ -148,7 +148,7 @@ impl SymbolRef {
     }
 
     /// Convert to SurrealDB Thing for relation creation
-    pub fn to_thing(&self, project_id: &str) -> surrealdb::sql::Thing {
+    pub fn to_thing(&self, project_id: &str) -> Thing {
         crate::types::safe_thing::symbol_thing(project_id, &self.file_path, &self.name, self.line)
     }
 }
@@ -238,7 +238,7 @@ impl CodeReferenceBuilder {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct SymbolRelation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
@@ -281,7 +281,7 @@ impl SymbolRelation {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct ScoredSymbol {
     #[serde(flatten)]
     pub symbol: CodeSymbol,

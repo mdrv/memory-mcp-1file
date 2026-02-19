@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::{Datetime, Thing};
+use super::{Datetime, SurrealValue, Thing};
 
 fn default_datetime() -> Datetime {
     Datetime::default()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct CodeChunk {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
@@ -63,7 +63,7 @@ pub enum Language {
     Unknown,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct IndexStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,

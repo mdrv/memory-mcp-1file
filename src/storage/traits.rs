@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use std::collections::HashMap;
-use surrealdb::sql::Datetime;
+use crate::types::Datetime;
 
 use crate::types::{
     CodeChunk, CodeSymbol, Direction, Entity, IndexStatus, Memory, MemoryUpdate, Relation,

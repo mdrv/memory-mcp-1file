@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::{Datetime, Thing};
+use super::{Datetime, SurrealValue, Thing};
 
 use super::EmbeddingState;
 
@@ -19,7 +19,7 @@ fn default_content() -> String {
     String::new()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, SurrealValue)]
 pub struct Memory {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,

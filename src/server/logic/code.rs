@@ -515,7 +515,7 @@ mod tests {
     #[tokio::test]
     async fn test_code_logic_flow() {
         let ctx = TestContext::new().await;
-        let unique_id = format!("test_project_{}", surrealdb::Uuid::new_v4().simple());
+        let unique_id = format!("test_project_{}", uuid::Uuid::new_v4().simple());
         let project_path = ctx._temp_dir.path().join(&unique_id);
         fs::create_dir_all(&project_path).unwrap();
         fs::write(

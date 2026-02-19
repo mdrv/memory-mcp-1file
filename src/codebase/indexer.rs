@@ -266,7 +266,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
     }
 
     status.status = IndexState::EmbeddingPending;
-    status.completed_at = Some(surrealdb::sql::Datetime::default());
+    status.completed_at = Some(crate::types::Datetime::default());
 
     state.storage.update_index_status(status.clone()).await?;
 

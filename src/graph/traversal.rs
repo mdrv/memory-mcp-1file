@@ -138,7 +138,7 @@ impl<'a, S: GraphTraversalStorage> GraphTraverser<'a, S> {
                 let rel_id = rel
                     .id
                     .as_ref()
-                    .map(|t| t.id.to_string())
+                    .map(|t| crate::types::record_key_to_string(&t.key))
                     .unwrap_or_default();
                 if visited_relations.insert(rel_id) {
                     all_relations.push(rel);
@@ -149,7 +149,7 @@ impl<'a, S: GraphTraversalStorage> GraphTraverser<'a, S> {
                 let eid = entity
                     .id
                     .as_ref()
-                    .map(|t| t.id.to_string())
+                    .map(|t| crate::types::record_key_to_string(&t.key))
                     .unwrap_or_default();
 
                 if visited_entities.insert(eid.clone()) {

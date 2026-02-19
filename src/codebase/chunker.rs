@@ -198,7 +198,7 @@ fn create_chunk(
         embedding: None,
         content_hash,
         project_id: Some(project_id.to_string()),
-        indexed_at: surrealdb::sql::Datetime::default(),
+        indexed_at: crate::types::Datetime::default(),
     }
 }
 

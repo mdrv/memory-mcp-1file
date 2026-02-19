@@ -6,7 +6,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use surrealdb::sql::Thing;
+use super::{Thing, RecordId};
 
 /// Creates a safe Thing for a code symbol using a deterministic hash.
 ///
@@ -28,7 +28,7 @@ use surrealdb::sql::Thing;
 /// ```
 pub fn symbol_thing(project_id: &str, file_path: &str, name: &str, line: u32) -> Thing {
     let safe_id = symbol_hash(project_id, file_path, name, line);
-    Thing::from(("code_symbols".to_string(), safe_id))
+    RecordId::new("code_symbols", safe_id)
 }
 
 /// Creates a safe Thing for a symbol relation endpoint.
@@ -72,30 +72,30 @@ mod tests {
     fn test_symbol_thing_with_colons() {
         // Should not panic with special characters
         let thing = symbol_thing("project", "file.rs", "std::io::Read", 42);
-        assert_eq!(thing.tb, "code_symbols");
+        assert_eq!(thing.table.as_str(), "code_symbols");
         // ID should be all hex characters
-        assert!(thing.id.to_string().chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(crate::types::record_key_to_string(&thing.key).chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]
     fn test_symbol_thing_deterministic() {
         let thing1 = symbol_thing("p", "f.rs", "func", 10);
         let thing2 = symbol_thing("p", "f.rs", "func", 10);
-        assert_eq!(thing1.id.to_string(), thing2.id.to_string());
+        assert_eq!(crate::types::record_key_to_string(&thing1.key), crate::types::record_key_to_string(&thing2.key));
     }
 
     #[test]
     fn test_symbol_thing_different_for_different_inputs() {
         let thing1 = symbol_thing("p", "f.rs", "func1", 10);
         let thing2 = symbol_thing("p", "f.rs", "func2", 10);
-        assert_ne!(thing1.id.to_string(), thing2.id.to_string());
+        assert_ne!(crate::types::record_key_to_string(&thing1.key), crate::types::record_key_to_string(&thing2.key));
     }
 
     #[test]
     fn test_symbol_thing_different_lines() {
         let thing1 = symbol_thing("p", "f.rs", "func", 10);
         let thing2 = symbol_thing("p", "f.rs", "func", 20);
-        assert_ne!(thing1.id.to_string(), thing2.id.to_string());
+        assert_ne!(crate::types::record_key_to_string(&thing1.key), crate::types::record_key_to_string(&thing2.key));
     }
 
     #[test]
@@ -125,13 +125,13 @@ mod tests {
         for name in names {
             let thing = symbol_thing("p", "f.rs", name, 1);
             // Should not panic and ID should be safe
-            assert!(thing.id.to_string().chars().all(|c| c.is_ascii_hexdigit()));
+            assert!(crate::types::record_key_to_string(&thing.key).chars().all(|c| c.is_ascii_hexdigit()));
         }
     }
 
     #[test]
     fn test_reference_thing() {
         let thing = reference_thing("project", "file.rs", "caller_func", 100);
-        assert_eq!(thing.tb, "code_symbols");
+        assert_eq!(thing.table.as_str(), "code_symbols");
     }
 }

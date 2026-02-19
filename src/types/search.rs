@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use super::SurrealValue;
 use super::code::{ChunkType, Language};
 use super::memory::MemoryType;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct SearchResult {
     pub id: String,
     pub content: String,
@@ -38,7 +39,7 @@ pub struct CodeSearchResult {
     pub query: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct ScoredCodeChunk {
     pub id: String,
     pub file_path: String,

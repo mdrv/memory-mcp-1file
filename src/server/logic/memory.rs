@@ -29,7 +29,7 @@ pub async fn store_memory(
         .and_then(|s| s.parse().ok())
         .unwrap_or_default();
 
-    let now = surrealdb::sql::Datetime::default();
+    let now = crate::types::Datetime::default();
     let memory = Memory {
         content: params.content,
         embedding: Some(embedding),
@@ -174,7 +174,7 @@ pub async fn get_valid_at(
         Ok(t) => t,
         Err(_) => return Ok(error_response("Invalid timestamp format. Use ISO 8601")),
     };
-    let ts = surrealdb::sql::Datetime::from(chrono_ts);
+    let ts = crate::types::Datetime::from(chrono_ts);
 
     match state
         .storage

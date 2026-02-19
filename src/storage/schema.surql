@@ -1,9 +1,9 @@
 -- Memory MCP Server Schema
--- SurrealDB 2.x with kv-surrealkv
+-- SurrealDB 3.x with kv-surrealkv
 -- HNSW DIMENSION set dynamically from model at runtime
 
 -- Define analyzers for full-text search (BM25)
-DEFINE ANALYZER IF NOT EXISTS simple TOKENIZERS blank, class FILTERS lowercase;
+DEFINE ANALYZER IF NOT EXISTS simple TOKENIZERS blank, class, camel FILTERS lowercase, snowball(english);
 
 -- Memories table
 DEFINE TABLE IF NOT EXISTS memories SCHEMAFULL;
@@ -11,20 +11,21 @@ DEFINE FIELD content          ON memories TYPE string;
 DEFINE FIELD embedding        ON memories TYPE option<array<float>>;
 DEFINE FIELD memory_type      ON memories TYPE string DEFAULT 'semantic';
 DEFINE FIELD user_id          ON memories TYPE option<string>;
-DEFINE FIELD metadata         ON memories FLEXIBLE TYPE option<object>;
+DEFINE FIELD metadata         ON memories TYPE option<object> FLEXIBLE;
 DEFINE FIELD event_time       ON memories TYPE datetime DEFAULT time::now();
 DEFINE FIELD ingestion_time   ON memories TYPE datetime DEFAULT time::now();
 DEFINE FIELD valid_from       ON memories TYPE datetime DEFAULT time::now();
 DEFINE FIELD valid_until      ON memories TYPE option<datetime>;
 DEFINE FIELD importance_score ON memories TYPE float DEFAULT 1.0;
 DEFINE FIELD invalidation_reason ON memories TYPE option<string>;
+DEFINE FIELD superseded_by    ON memories TYPE option<string>;
 DEFINE FIELD content_hash     ON memories TYPE option<string>;
 DEFINE FIELD embedding_state  ON memories TYPE string DEFAULT 'none';
 
 DEFINE INDEX OVERWRITE idx_memories_vec ON memories 
     FIELDS embedding HNSW DIMENSION {dim} DIST COSINE;
 DEFINE INDEX IF NOT EXISTS idx_memories_fts ON memories 
-    FIELDS content SEARCH ANALYZER simple BM25;
+    FIELDS content FULLTEXT ANALYZER simple BM25;
 
 -- Entities table
 DEFINE TABLE IF NOT EXISTS entities SCHEMAFULL;
@@ -39,13 +40,20 @@ DEFINE FIELD created_at       ON entities TYPE datetime DEFAULT time::now();
 DEFINE INDEX OVERWRITE idx_entities_vec ON entities 
     FIELDS embedding HNSW DIMENSION {dim} DIST COSINE;
 DEFINE INDEX IF NOT EXISTS idx_entities_fts ON entities 
-    FIELDS name SEARCH ANALYZER simple BM25;
+    FIELDS name FULLTEXT ANALYZER simple BM25;
 
--- Relations table will be auto-created by RELATE statements
--- No explicit definition needed; RELATE creates edge tables automatically
+-- Relations table (entity graph edges)
+-- Auto-created by RELATE statements; no explicit definition needed
 
 -- Symbol relations table (code graph edges: calls, imports, etc.)
-DEFINE TABLE IF NOT EXISTS symbol_relation;
+DEFINE TABLE IF NOT EXISTS symbol_relation SCHEMAFULL TYPE RELATION;
+DEFINE FIELD in              ON symbol_relation TYPE record;
+DEFINE FIELD out             ON symbol_relation TYPE record;
+DEFINE FIELD relation_type   ON symbol_relation TYPE string;
+DEFINE FIELD project_id      ON symbol_relation TYPE string;
+DEFINE FIELD file_path       ON symbol_relation TYPE string;
+DEFINE FIELD line_number     ON symbol_relation TYPE int;
+DEFINE FIELD created_at      ON symbol_relation TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS idx_sr_in ON symbol_relation FIELDS in;
 DEFINE INDEX IF NOT EXISTS idx_sr_out ON symbol_relation FIELDS out;
 DEFINE INDEX IF NOT EXISTS idx_sr_project ON symbol_relation FIELDS project_id;
@@ -68,7 +76,7 @@ DEFINE FIELD indexed_at       ON code_chunks TYPE datetime DEFAULT time::now();
 DEFINE INDEX OVERWRITE idx_chunks_vec ON code_chunks 
     FIELDS embedding HNSW DIMENSION {dim} DIST COSINE;
 DEFINE INDEX IF NOT EXISTS idx_chunks_fts ON code_chunks 
-    FIELDS content SEARCH ANALYZER simple BM25;
+    FIELDS content FULLTEXT ANALYZER simple BM25;
 DEFINE INDEX IF NOT EXISTS idx_chunks_path ON code_chunks FIELDS file_path;
 DEFINE INDEX IF NOT EXISTS idx_chunks_project ON code_chunks FIELDS project_id;
 DEFINE INDEX IF NOT EXISTS idx_chunks_hash ON code_chunks FIELDS content_hash;

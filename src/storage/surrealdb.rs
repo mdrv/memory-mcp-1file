@@ -3,14 +3,14 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use surrealdb::engine::local::{Db, SurrealKv};
-use surrealdb::sql::Datetime;
+use crate::types::Datetime;
 use surrealdb::Surreal;
 
 use super::StorageBackend;
 use crate::graph::GraphTraversalStorage;
 use crate::types::{
-    CodeChunk, CodeSymbol, Direction, Entity, IndexStatus, Memory, MemoryUpdate, Relation,
-    ScoredCodeChunk, SearchResult, SymbolRelation,
+    CodeChunk, CodeRelationType, CodeSymbol, Direction, Entity, IndexStatus, Memory, MemoryUpdate, Relation,
+    ScoredCodeChunk, SearchResult, SurrealValue, SymbolRelation,
 };
 use crate::Result;
 
@@ -109,18 +109,143 @@ fn generate_id() -> String {
     hash.to_hex()[..20].to_string()
 }
 
-fn parse_thing(id: &str) -> crate::Result<surrealdb::sql::Thing> {
+fn parse_thing(id: &str) -> crate::Result<crate::types::Thing> {
     if let Some((table, key)) = id.split_once(':') {
-        Ok(surrealdb::sql::Thing::from((
+        Ok(crate::types::RecordId::new(
             table.to_string(),
             key.to_string(),
-        )))
+        ))
     } else {
         Err(crate::AppError::Database(format!(
             "Invalid thing ID format: {}",
             id
         )))
     }
+}
+
+/// SurrealDB v3 workaround: The SurrealValue derive macro generates `from_value()`
+/// that fails with "Expected any, got record" when a struct contains RecordId fields.
+/// Also, serde_json intermediary fails because Value serializes with Rust enum wrappers.
+/// This helper manually extracts fields from Value::Object to construct Relation.
+fn value_to_relations(value: surrealdb_types::Value) -> Vec<Relation> {
+    use surrealdb_types::Value;
+
+    let arr = match value {
+        Value::Array(arr) => arr.into_vec(),
+        Value::None | Value::Null => return vec![],
+        other => vec![other],
+    };
+
+    let mut relations = Vec::with_capacity(arr.len());
+    for item in arr {
+        if let Value::Object(obj) = item {
+            // Extract RecordId fields
+            let id = obj.get("id").and_then(|v| {
+                if let Value::RecordId(r) = v { Some(r.clone()) } else { None }
+            });
+            let from_entity = match obj.get("in") {
+                Some(Value::RecordId(r)) => r.clone(),
+                _ => continue,
+            };
+            let to_entity = match obj.get("out") {
+                Some(Value::RecordId(r)) => r.clone(),
+                _ => continue,
+            };
+            // Extract string fields
+            let relation_type = match obj.get("relation_type") {
+                Some(Value::String(s)) => s.to_string(),
+                _ => continue,
+            };
+            // Extract weight
+            let weight = match obj.get("weight") {
+                Some(Value::Number(n)) => n.to_f64().unwrap_or(1.0) as f32,
+                _ => 1.0,
+            };
+            // Extract datetimes 
+            let valid_from = match obj.get("valid_from") {
+                Some(Value::Datetime(d)) => d.clone(),
+                _ => Default::default(),
+            };
+            let valid_until = match obj.get("valid_until") {
+                Some(Value::Datetime(d)) => Some(d.clone()),
+                _ => None,
+            };
+
+            relations.push(Relation {
+                id,
+                from_entity,
+                to_entity,
+                relation_type,
+                weight,
+                valid_from,
+                valid_until,
+            });
+        }
+    }
+    relations
+}
+
+/// Same workaround for SymbolRelation which also has RecordId fields (in/out).
+fn value_to_symbol_relations(value: surrealdb_types::Value) -> Vec<SymbolRelation> {
+    use surrealdb_types::Value;
+
+    let arr = match value {
+        Value::Array(arr) => arr.into_vec(),
+        Value::None | Value::Null => return vec![],
+        other => vec![other],
+    };
+
+    let mut relations = Vec::with_capacity(arr.len());
+    for item in arr {
+        if let Value::Object(obj) = item {
+            let id = obj.get("id").and_then(|v| {
+                if let Value::RecordId(r) = v { Some(r.clone()) } else { None }
+            });
+            let from_symbol = match obj.get("in") {
+                Some(Value::RecordId(r)) => r.clone(),
+                _ => continue,
+            };
+            let to_symbol = match obj.get("out") {
+                Some(Value::RecordId(r)) => r.clone(),
+                _ => continue,
+            };
+            let relation_type_str = match obj.get("relation_type") {
+                Some(Value::String(s)) => s.to_string(),
+                _ => continue,
+            };
+            let relation_type: CodeRelationType = serde_json::from_value(
+                serde_json::Value::String(relation_type_str.clone())
+            ).unwrap_or(CodeRelationType::Calls);
+            let file_path = match obj.get("file_path") {
+                Some(Value::String(s)) => s.to_string(),
+                _ => String::new(),
+            };
+            let line_number = match obj.get("line_number") {
+                Some(Value::Number(n)) => n.to_f64().unwrap_or(0.0) as u32,
+                _ => 0,
+            };
+            let project_id = match obj.get("project_id") {
+                Some(Value::String(s)) => s.to_string(),
+                _ => String::new(),
+            };
+            let created_at = match obj.get("created_at") {
+                Some(Value::Datetime(d)) => d.clone(),
+                _ => Default::default(),
+            };
+
+            relations.push(SymbolRelation {
+                id,
+                from_symbol,
+                to_symbol,
+                relation_type,
+                file_path,
+                line_number,
+                project_id,
+                created_at,
+            });
+        }
+    }
+    relations
 }
 
 #[async_trait]
@@ -135,10 +260,10 @@ impl GraphTraversalStorage for SurrealStorage {
         let entity_thing = ThingId::new("entities", entity_id)?.to_string();
 
         let sql = match direction {
-            Direction::Outgoing => "SELECT * FROM relations WHERE `in` = type::thing($entity_id)",
-            Direction::Incoming => "SELECT * FROM relations WHERE `out` = type::thing($entity_id)",
+            Direction::Outgoing => "SELECT * FROM relations WHERE `in` = type::record($entity_id)",
+            Direction::Incoming => "SELECT * FROM relations WHERE `out` = type::record($entity_id)",
             Direction::Both => {
-                "SELECT * FROM relations WHERE `in` = type::thing($entity_id) OR `out` = type::thing($entity_id)"
+                "SELECT * FROM relations WHERE `in` = type::record($entity_id) OR `out` = type::record($entity_id)"
             }
         };
 
@@ -148,20 +273,22 @@ impl GraphTraversalStorage for SurrealStorage {
             .bind(("entity_id", entity_thing.clone()))
             .await?;
 
-        let relations: Vec<Relation> = response.take(0).unwrap_or_default();
+        // Use Value intermediary to bypass SurrealValue RecordId bug
+        let raw: surrealdb_types::Value = response.take(0)?;
+        let relations = value_to_relations(raw);
 
         let mut entity_ids: HashSet<String> = HashSet::new();
         for rel in &relations {
             match direction {
                 Direction::Outgoing => {
-                    entity_ids.insert(rel.to_entity.id.to_string());
+                    entity_ids.insert(crate::types::record_key_to_string(&rel.to_entity.key));
                 }
                 Direction::Incoming => {
-                    entity_ids.insert(rel.from_entity.id.to_string());
+                    entity_ids.insert(crate::types::record_key_to_string(&rel.from_entity.key));
                 }
                 Direction::Both => {
-                    let from_id = rel.from_entity.id.to_string();
-                    let to_id = rel.to_entity.id.to_string();
+                    let from_id = crate::types::record_key_to_string(&rel.from_entity.key);
+                    let to_id = crate::types::record_key_to_string(&rel.to_entity.key);
                     if from_id != entity_id {
                         entity_ids.insert(from_id);
                     }
@@ -172,12 +299,10 @@ impl GraphTraversalStorage for SurrealStorage {
             }
         }
 
-        let mut entities: Vec<Entity> = vec![];
-        for eid in entity_ids {
-            if let Some(entity) = self.get_entity(&eid).await? {
-                entities.push(entity);
-            }
-        }
+        let entity_ids_vec: Vec<String> = entity_ids.into_iter().collect();
+        let entity_sql = "SELECT * FROM entities WHERE meta::id(id) IN $ids";
+        let mut entity_response = self.db.query(entity_sql).bind(("ids", entity_ids_vec)).await?;
+        let entities: Vec<Entity> = entity_response.take(0)?;
 
         Ok((entities, relations))
     }
@@ -191,7 +316,7 @@ impl GraphTraversalStorage for SurrealStorage {
             return Ok((vec![], vec![]));
         }
 
-        let things: Vec<surrealdb::sql::Thing> = entity_ids
+        let things: Vec<crate::types::Thing> = entity_ids
             .iter()
             .map(|id| {
                 use crate::types::ThingId;
@@ -209,14 +334,15 @@ impl GraphTraversalStorage for SurrealStorage {
 
         let mut response = self.db.query(sql).bind(("entity_ids", things)).await?;
 
-        let relations: Vec<Relation> = response.take(0).unwrap_or_default();
+        let raw: surrealdb_types::Value = response.take(0)?;
+        let relations = value_to_relations(raw);
 
         let source_ids: HashSet<&String> = entity_ids.iter().collect();
         let mut new_entity_ids: HashSet<String> = HashSet::new();
 
         for rel in &relations {
-            let from_id = rel.from_entity.id.to_string();
-            let to_id = rel.to_entity.id.to_string();
+            let from_id = crate::types::record_key_to_string(&rel.from_entity.key);
+            let to_id = crate::types::record_key_to_string(&rel.to_entity.key);
 
             if !source_ids.contains(&from_id) {
                 new_entity_ids.insert(from_id);
@@ -241,8 +367,8 @@ impl GraphTraversalStorage for SurrealStorage {
 impl StorageBackend for SurrealStorage {
     async fn create_memory(&self, mut memory: Memory) -> Result<String> {
         let id = generate_id();
-        memory.id = Some(surrealdb::sql::Thing::from(("memories", id.as_str())));
-        let _: Option<Memory> = self.db.create(("memories", &id)).content(memory).await?;
+        memory.id = Some(crate::types::RecordId::new("memories", id.as_str()));
+        let _: Option<Memory> = self.db.create(("memories", id.as_str())).content(memory).await?;
         Ok(id)
     }
 
@@ -302,10 +428,11 @@ impl StorageBackend for SurrealStorage {
 
     async fn vector_search(&self, embedding: &[f32], limit: usize) -> Result<Vec<SearchResult>> {
         let query = r#"
-            SELECT meta::id(id) AS id, content, memory_type, vector::similarity::cosine(embedding, $vec) AS score, metadata 
+            SELECT meta::id(id) AS id, content, memory_type,
+                vector::similarity::cosine(embedding, $vec) AS score, metadata 
             FROM memories 
-            WHERE embedding IS NOT NULL 
-              AND (valid_until = NONE OR valid_until > time::now())
+            WHERE embedding IS NOT NONE 
+              AND (valid_until IS NONE OR valid_until > time::now())
             ORDER BY score DESC 
             LIMIT $limit
         "#;
@@ -338,7 +465,7 @@ impl StorageBackend for SurrealStorage {
                 vector::similarity::cosine(embedding, $vec) AS score 
             FROM code_chunks
             WHERE embedding IS NOT NONE
-              AND ($project_id = NONE OR project_id = $project_id)
+              AND ($project_id IS NONE OR project_id = $project_id)
             ORDER BY score DESC 
             LIMIT $limit
         "#;
@@ -354,12 +481,13 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn bm25_search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
+        // TODO: SurrealDB v3.0.0 FULLTEXT @@ + search::score(0) is broken.
+        // Revert to @0@ + search::score(0) when fixed upstream.
         let sql = r#"
-            SELECT meta::id(id) AS id, content, memory_type, search::score(0) AS score, metadata 
+            SELECT meta::id(id) AS id, content, memory_type, 1.0f AS score, metadata 
             FROM memories 
-            WHERE content @0@ $query
-              AND (valid_until = NONE OR valid_until > time::now())
-            ORDER BY score DESC 
+            WHERE string::lowercase(content) CONTAINS string::lowercase($query)
+              AND (valid_until IS NONE OR valid_until > time::now())
             LIMIT $limit
         "#;
         let mut response = self
@@ -378,6 +506,7 @@ impl StorageBackend for SurrealStorage {
         project_id: Option<&str>,
         limit: usize,
     ) -> Result<Vec<ScoredCodeChunk>> {
+        // TODO: SurrealDB v3.0.0 FULLTEXT @@ + search::score(0) is broken.
         let sql = r#"
             SELECT 
                 meta::id(id) AS id,
@@ -388,11 +517,10 @@ impl StorageBackend for SurrealStorage {
                 end_line,
                 chunk_type,
                 name,
-                search::score(0) AS score 
+                1.0f AS score 
             FROM code_chunks 
-            WHERE content @0@ $query
-              AND ($project_id = NONE OR project_id = $project_id)
-            ORDER BY score DESC 
+            WHERE string::lowercase(content) CONTAINS string::lowercase($query)
+              AND ($project_id IS NONE OR project_id = $project_id)
             LIMIT $limit
         "#;
         let mut response = self
@@ -408,8 +536,8 @@ impl StorageBackend for SurrealStorage {
 
     async fn create_entity(&self, mut entity: Entity) -> Result<String> {
         let id = generate_id();
-        entity.id = Some(surrealdb::sql::Thing::from(("entities", id.as_str())));
-        let _: Option<Entity> = self.db.create(("entities", &id)).content(entity).await?;
+        entity.id = Some(crate::types::RecordId::new("entities", id.as_str()));
+        let _: Option<Entity> = self.db.create(("entities", id.as_str())).content(entity).await?;
         Ok(id)
     }
 
@@ -419,11 +547,11 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn search_entities(&self, query: &str, limit: usize) -> Result<Vec<Entity>> {
+        // TODO: SurrealDB v3.0.0 FULLTEXT @@ + search::score(0) is broken.
         let sql = r#"
-            SELECT *, search::score(0) AS score 
+            SELECT * 
             FROM entities 
-            WHERE name @0@ $query
-            ORDER BY score DESC 
+            WHERE string::lowercase(name) CONTAINS string::lowercase($query)
             LIMIT $limit
         "#;
         let mut response = self
@@ -441,25 +569,26 @@ impl StorageBackend for SurrealStorage {
 
         let id = generate_id();
         let from_thing = ThingId::new(
-            &relation.from_entity.tb,
-            &relation.from_entity.id.to_string(),
+            relation.from_entity.table.as_str(),
+            &crate::types::record_key_to_string(&relation.from_entity.key),
         )?;
-        let to_thing = ThingId::new(&relation.to_entity.tb, &relation.to_entity.id.to_string())?;
+        let to_thing = ThingId::new(relation.to_entity.table.as_str(), &crate::types::record_key_to_string(&relation.to_entity.key))?;
 
-        let sql = "CREATE type::thing(\"relations\", $id) SET \
-            `in` = type::thing($from), \
-            `out` = type::thing($to), \
-            relation_type = $rel_type, \
-            weight = $weight";
+        // SurrealDB v3: RELATE with bound RecordId causes "Expected any, got record",
+        // CREATE on TYPE RELATION tables causes "not a relation" error.
+        // Use inline RELATE with validated ThingId (SQL injection safe).
+        let sql = format!(
+            "RELATE {}->relations->{} SET relation_type = $rel_type, weight = $weight",
+            from_thing, to_thing
+        );
 
-        self.db
-            .query(sql)
-            .bind(("id", id.clone()))
-            .bind(("from", from_thing.to_string()))
-            .bind(("to", to_thing.to_string()))
+        let mut response = self.db
+            .query(&sql)
             .bind(("rel_type", relation.relation_type))
             .bind(("weight", relation.weight))
             .await?;
+        
+        // Skip response check — v3 RELATE returns record types
 
         Ok(id)
     }
@@ -490,11 +619,12 @@ impl StorageBackend for SurrealStorage {
             .map(|id| ThingId::new("entities", id))
             .collect::<anyhow::Result<Vec<_>>>()?;
 
-        let ids: Vec<surrealdb::sql::Thing> = validated_ids.iter().map(|t| t.to_thing()).collect();
+        let ids: Vec<crate::types::Thing> = validated_ids.iter().map(|t| t.to_thing()).collect();
 
         let sql = "SELECT * FROM relations WHERE in IN $ids AND out IN $ids";
         let mut response = self.db.query(sql).bind(("ids", ids.clone())).await?;
-        let relations: Vec<Relation> = response.take(0)?;
+        let raw: surrealdb_types::Value = response.take(0)?;
+        let relations = value_to_relations(raw);
 
         let entity_sql = "SELECT * FROM entities WHERE id IN $ids";
         let mut entity_response = self.db.query(entity_sql).bind(("ids", ids)).await?;
@@ -506,22 +636,34 @@ impl StorageBackend for SurrealStorage {
     async fn get_node_degrees(&self, entity_ids: &[String]) -> Result<HashMap<String, usize>> {
         use crate::types::ThingId;
 
-        let mut degrees = HashMap::new();
-        for id in entity_ids {
-            let thing = ThingId::new("entities", id)?;
+        if entity_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
 
-            let sql = "SELECT count() FROM relations \
-                WHERE in = type::thing($id) OR out = type::thing($id) \
-                GROUP ALL";
+        let things: Vec<String> = entity_ids
+            .iter()
+            .filter_map(|id| ThingId::new("entities", id).ok().map(|t| t.to_string()))
+            .collect();
 
-            // Use to_string() for 'static lifetime required by SurrealDB .bind()
-            let mut response = self.db.query(sql).bind(("id", thing.to_string())).await?;
+        // Single batch query for all degrees
+        let sql = r#"
+            SELECT meta::id(`in`.id) AS node, count() AS degree FROM relations
+            WHERE `in` IN $ids OR `out` IN $ids
+            GROUP BY node
+        "#;
 
-            let result: Option<serde_json::Value> = response.take(0)?;
-            let count = result
-                .and_then(|v| v.get("count").and_then(|c| c.as_u64()))
-                .unwrap_or(0) as usize;
-            degrees.insert(id.clone(), count);
+        let mut response = self.db.query(sql).bind(("ids", things)).await?;
+
+        #[derive(serde::Deserialize, SurrealValue)]
+        struct DegreeResult {
+            node: String,
+            degree: u64,
+        }
+
+        let results: Vec<DegreeResult> = response.take(0).unwrap_or_default();
+        let mut degrees: HashMap<String, usize> = entity_ids.iter().map(|id| (id.clone(), 0)).collect();
+        for r in results {
+            degrees.insert(r.node, r.degree as usize);
         }
         Ok(degrees)
     }
@@ -534,15 +676,16 @@ impl StorageBackend for SurrealStorage {
 
     async fn get_all_relations(&self) -> Result<Vec<Relation>> {
         let mut response = self.db.query("SELECT * FROM relations").await?;
-        let relations: Vec<Relation> = response.take(0)?;
+        let raw: surrealdb_types::Value = response.take(0)?;
+        let relations = value_to_relations(raw);
         Ok(relations)
     }
 
     async fn get_valid(&self, user_id: Option<&str>, limit: usize) -> Result<Vec<Memory>> {
         let sql = r#"
             SELECT * FROM memories 
-            WHERE (valid_until = NONE OR valid_until > time::now())
-              AND ($user_id = NONE OR user_id = $user_id)
+            WHERE (valid_until IS NONE OR valid_until > time::now())
+              AND ($user_id IS NONE OR user_id = $user_id)
             ORDER BY ingestion_time DESC
             LIMIT $limit
         "#;
@@ -565,8 +708,8 @@ impl StorageBackend for SurrealStorage {
         let sql = r#"
             SELECT * FROM memories 
             WHERE valid_from <= $timestamp 
-              AND (valid_until = NONE OR valid_until > $timestamp)
-              AND ($user_id = NONE OR user_id = $user_id)
+              AND (valid_until IS NONE OR valid_until > $timestamp)
+              AND ($user_id IS NONE OR user_id = $user_id)
             ORDER BY ingestion_time DESC
             LIMIT $limit
         "#;
@@ -587,8 +730,9 @@ impl StorageBackend for SurrealStorage {
         reason: Option<&str>,
         superseded_by: Option<&str>,
     ) -> Result<bool> {
+        let thing = crate::types::RecordId::new("memories", id);
         let sql = r#"
-            UPDATE type::thing("memories", $id) SET 
+            UPDATE $thing SET 
                 valid_until = time::now(),
                 invalidation_reason = $reason,
                 superseded_by = $superseded_by
@@ -596,7 +740,7 @@ impl StorageBackend for SurrealStorage {
         let mut response = self
             .db
             .query(sql)
-            .bind(("id", id.to_string()))
+            .bind(("thing", thing))
             .bind(("reason", reason.map(String::from)))
             .bind(("superseded_by", superseded_by.map(String::from)))
             .await?;
@@ -606,8 +750,8 @@ impl StorageBackend for SurrealStorage {
 
     async fn create_code_chunk(&self, mut chunk: CodeChunk) -> Result<String> {
         let id = generate_id();
-        chunk.id = Some(surrealdb::sql::Thing::from(("code_chunks", id.as_str())));
-        let _: Option<CodeChunk> = self.db.create(("code_chunks", &id)).content(chunk).await?;
+        chunk.id = Some(crate::types::RecordId::new("code_chunks", id.as_str()));
+        let _: Option<CodeChunk> = self.db.create(("code_chunks", id.as_str())).content(chunk).await?;
         Ok(id)
     }
 
@@ -623,7 +767,7 @@ impl StorageBackend for SurrealStorage {
         for chunk in &mut chunks {
             if chunk.id.is_none() {
                 let id = generate_id();
-                chunk.id = Some(surrealdb::sql::Thing::from(("code_chunks", id.as_str())));
+                chunk.id = Some(crate::types::RecordId::new("code_chunks", id.as_str()));
             }
         }
 
@@ -631,7 +775,7 @@ impl StorageBackend for SurrealStorage {
 
         let pairs = created
             .into_iter()
-            .filter_map(|c| c.id.as_ref().map(|t| (t.to_string(), c.clone())))
+            .filter_map(|c| c.id.as_ref().map(|t| (format!("{}:{}", t.table.as_str(), crate::types::record_key_to_string(&t.key)), c.clone())))
             .collect();
 
         Ok(pairs)
@@ -719,7 +863,7 @@ impl StorageBackend for SurrealStorage {
         let updated: Vec<IndexStatus> = response.take(0).unwrap_or_default();
 
         if updated.is_empty() {
-            let id = ("index_status", &status.project_id);
+            let id = ("index_status", status.project_id.as_str());
             let _: Option<IndexStatus> = self.db.create(id).content(status).await?;
         }
 
@@ -805,10 +949,11 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn create_code_symbol(&self, mut symbol: CodeSymbol) -> Result<String> {
-        let id = ("code_symbols", &symbol.unique_key());
+        let key = symbol.unique_key();
+        let id = ("code_symbols", key.as_str());
         symbol.id = None;
         let _: Option<CodeSymbol> = self.db.create(id).content(symbol).await?;
-        Ok(format!("code_symbols:{}", id.1))
+        Ok(format!("code_symbols:{}", key))
     }
 
     async fn create_code_symbols_batch(&self, symbols: Vec<CodeSymbol>) -> Result<Vec<String>> {
@@ -836,7 +981,7 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn update_symbol_embedding(&self, id: &str, embedding: Vec<f32>) -> Result<()> {
-        let sql = "UPDATE code_symbols SET embedding = $embedding WHERE id = type::thing($id)";
+        let sql = "UPDATE code_symbols SET embedding = $embedding WHERE id = type::record($id)";
         let _ = self
             .db
             .query(sql)
@@ -847,7 +992,7 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn update_chunk_embedding(&self, id: &str, embedding: Vec<f32>) -> Result<()> {
-        let sql = "UPDATE code_chunks SET embedding = $embedding WHERE id = type::thing($id)";
+        let sql = "UPDATE code_chunks SET embedding = $embedding WHERE id = type::record($id)";
         let _ = self
             .db
             .query(sql)
@@ -864,7 +1009,7 @@ impl StorageBackend for SurrealStorage {
 
         let sql = r#"
             FOR $u IN $updates {
-                UPDATE type::thing($u.id) SET embedding = $u.embedding;
+                UPDATE type::record($u.id) SET embedding = $u.embedding;
             };
         "#;
 
@@ -884,7 +1029,7 @@ impl StorageBackend for SurrealStorage {
 
         let sql = r#"
             FOR $u IN $updates {
-                UPDATE type::thing($u.id) SET embedding = $u.embedding;
+                UPDATE type::record($u.id) SET embedding = $u.embedding;
             };
         "#;
 
@@ -898,24 +1043,30 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn create_symbol_relation(&self, relation: SymbolRelation) -> Result<String> {
-        let sql = "RELATE $from->symbol_relation->$to CONTENT $content";
+        let sql = "RELATE $from->symbol_relation->$to SET relation_type = $rtype, project_id = $pid, file_path = $fpath, line_number = $lnum, created_at = $cat";
         let from = relation.from_symbol.clone();
         let to = relation.to_symbol.clone();
 
-        let _ = self
+        let _response = self
             .db
             .query(sql)
             .bind(("from", from))
             .bind(("to", to))
-            .bind(("content", relation))
+            .bind(("rtype", relation.relation_type.to_string()))
+            .bind(("pid", relation.project_id))
+            .bind(("fpath", relation.file_path))
+            .bind(("lnum", relation.line_number as i64))
+            .bind(("cat", relation.created_at))
             .await?;
         Ok("relation_created".to_string())
     }
 
     async fn delete_project_symbols(&self, project_id: &str) -> Result<usize> {
         let sql = r#"
+            BEGIN TRANSACTION;
             DELETE symbol_relation WHERE project_id = $project_id;
             DELETE code_symbols WHERE project_id = $project_id;
+            COMMIT TRANSACTION;
         "#;
         let _ = self
             .db
@@ -929,6 +1080,7 @@ impl StorageBackend for SurrealStorage {
         // symbol_relation is an edge table (from RELATE) — it has no file_path field.
         // Delete relations where either endpoint is a symbol from this file.
         let sql = r#"
+            BEGIN TRANSACTION;
             DELETE symbol_relation WHERE in IN (
                 SELECT id FROM code_symbols
                 WHERE project_id = $project_id AND file_path = $file_path
@@ -937,6 +1089,7 @@ impl StorageBackend for SurrealStorage {
                 WHERE project_id = $project_id AND file_path = $file_path
             );
             DELETE code_symbols WHERE project_id = $project_id AND file_path = $file_path;
+            COMMIT TRANSACTION;
         "#;
         let _ = self
             .db
@@ -1023,21 +1176,23 @@ impl StorageBackend for SurrealStorage {
             .bind(("id", symbol_thing.clone()))
             .await?;
 
-        let relations: Vec<SymbolRelation> = response.take(0).unwrap_or_default();
+        // Use Value intermediary to bypass SurrealValue RecordId bug
+        let raw: surrealdb_types::Value = response.take(0)?;
+        let relations = value_to_symbol_relations(raw);
 
         let mut symbol_ids: Vec<String> = vec![];
         for rel in &relations {
             match direction {
                 Direction::Outgoing => {
-                    symbol_ids.push(rel.to_symbol.to_string());
+                    symbol_ids.push(format!("{}:{}", rel.to_symbol.table.as_str(), crate::types::record_key_to_string(&rel.to_symbol.key)));
                 }
                 Direction::Incoming => {
-                    symbol_ids.push(rel.from_symbol.to_string());
+                    symbol_ids.push(format!("{}:{}", rel.from_symbol.table.as_str(), crate::types::record_key_to_string(&rel.from_symbol.key)));
                 }
                 Direction::Both => {
-                    let from_str = rel.from_symbol.to_string();
-                    let to_str = rel.to_symbol.to_string();
-                    let symbol_thing_str = symbol_thing.to_string();
+                    let from_str = format!("{}:{}", rel.from_symbol.table.as_str(), crate::types::record_key_to_string(&rel.from_symbol.key));
+                    let to_str = format!("{}:{}", rel.to_symbol.table.as_str(), crate::types::record_key_to_string(&rel.to_symbol.key));
+                    let symbol_thing_str = format!("{}:{}", symbol_thing.table.as_str(), crate::types::record_key_to_string(&symbol_thing.key));
 
                     if from_str != symbol_thing_str {
                         symbol_ids.push(from_str);
@@ -1083,7 +1238,7 @@ impl StorageBackend for SurrealStorage {
     ) -> Result<(Vec<CodeSymbol>, u32)> {
         let limit = limit.clamp(1, 100);
 
-        let mut conditions = vec!["(name ~ $query OR signature ~ $query)".to_string()];
+        let mut conditions = vec!["(string::lowercase(name) CONTAINS string::lowercase($query) OR string::lowercase(signature) CONTAINS string::lowercase($query))".to_string()];
 
         if project_id.is_some() {
             conditions.push("project_id = $project_id".to_string());
@@ -1125,7 +1280,7 @@ impl StorageBackend for SurrealStorage {
         let mut response = query_builder.await?;
         let symbols: Vec<CodeSymbol> = response.take(0)?;
 
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, SurrealValue)]
         struct CountResult {
             count: u32,
         }
@@ -1147,7 +1302,7 @@ impl StorageBackend for SurrealStorage {
             .bind(("project_id", project_id.to_string()))
             .await?;
 
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, SurrealValue)]
         struct CountResult {
             count: u32,
         }
@@ -1164,7 +1319,7 @@ impl StorageBackend for SurrealStorage {
             .bind(("project_id", project_id.to_string()))
             .await?;
 
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, SurrealValue)]
         struct CountResult {
             count: u32,
         }
@@ -1174,14 +1329,14 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn count_embedded_symbols(&self, project_id: &str) -> Result<u32> {
-        let sql = "SELECT count() FROM code_symbols WHERE project_id = $project_id AND embedding IS NOT NULL GROUP ALL";
+        let sql = "SELECT count() FROM code_symbols WHERE project_id = $project_id AND embedding IS NOT NONE GROUP ALL";
         let mut response = self
             .db
             .query(sql)
             .bind(("project_id", project_id.to_string()))
             .await?;
 
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, SurrealValue)]
         struct CountResult {
             count: u32,
         }
@@ -1191,14 +1346,14 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn count_embedded_chunks(&self, project_id: &str) -> Result<u32> {
-        let sql = "SELECT count() FROM code_chunks WHERE project_id = $project_id AND embedding IS NOT NULL GROUP ALL";
+        let sql = "SELECT count() FROM code_chunks WHERE project_id = $project_id AND embedding IS NOT NONE GROUP ALL";
         let mut response = self
             .db
             .query(sql)
             .bind(("project_id", project_id.to_string()))
             .await?;
 
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, SurrealValue)]
         struct CountResult {
             count: u32,
         }
@@ -1219,7 +1374,7 @@ impl StorageBackend for SurrealStorage {
             .bind(("project_id", project_id.to_string()))
             .await?;
 
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, SurrealValue)]
         struct CountResult {
             count: u32,
         }
@@ -1286,21 +1441,13 @@ impl StorageBackend for SurrealStorage {
     }
 
     async fn reset_db(&self) -> Result<()> {
-        self.db
-            .query(
-                r#"
-            BEGIN TRANSACTION;
-            DELETE memories;
-            DELETE entities;
-            DELETE relations;
-            DELETE code_chunks;
-            DELETE code_symbols;
-            DELETE symbol_relation;
-            DELETE index_status;
-            COMMIT TRANSACTION;
-            "#,
-            )
-            .await?;
+        // Run each DELETE independently — some tables may not exist yet
+        // (e.g. relation tables are created on first RELATE).
+        // Using a transaction would cause one failure to cancel all DELETEs.
+        let tables = ["memories", "entities", "relations", "code_chunks", "code_symbols", "symbol_relation", "index_status"];
+        for table in &tables {
+            let _ = self.db.query(format!("DELETE {}", table)).await;
+        }
         Ok(())
     }
 
@@ -1322,8 +1469,10 @@ impl StorageBackend for SurrealStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ChunkType, Entity, Language, Memory, MemoryType, MemoryUpdate, Relation};
-    use surrealdb::sql::{Datetime, Thing};
+    use crate::types::{
+        ChunkType, Datetime, Entity, Language, Memory, MemoryType, MemoryUpdate, RecordId,
+        Relation, Thing,
+    };
     use tempfile::tempdir;
 
     async fn setup_test_db() -> (SurrealStorage, tempfile::TempDir) {
@@ -1467,8 +1616,8 @@ mod tests {
         let _rel_id = storage
             .create_relation(Relation {
                 id: None,
-                from_entity: Thing::from(("entities".to_string(), e1_id.clone())),
-                to_entity: Thing::from(("entities".to_string(), e2_id.clone())),
+                from_entity: RecordId::new("entities", e1_id.clone()),
+                to_entity: RecordId::new("entities", e2_id.clone()),
                 relation_type: "lives_in".to_string(),
                 weight: 1.0,
                 valid_from: Datetime::default(),
@@ -1477,7 +1626,10 @@ mod tests {
             .await
             .unwrap();
 
-        let (related, _) = storage
+
+
+        
+        let (related, rels_out) = storage
             .get_related(&e1_id, 1, Direction::Outgoing)
             .await
             .unwrap();
@@ -1520,8 +1672,8 @@ mod tests {
             .unwrap_or(&callee_id);
 
         let relation = SymbolRelation::new(
-            surrealdb::sql::Thing::from(("code_symbols".to_string(), caller_key.to_string())),
-            surrealdb::sql::Thing::from(("code_symbols".to_string(), callee_key.to_string())),
+            crate::types::RecordId::new("code_symbols", caller_key.to_string()),
+            crate::types::RecordId::new("code_symbols", callee_key.to_string()),
             CodeRelationType::Calls,
             "main.rs".to_string(),
             3,

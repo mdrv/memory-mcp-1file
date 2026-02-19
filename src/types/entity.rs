@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::{Datetime, Thing};
+use super::{Datetime, SurrealValue, Thing};
 
 fn default_weight() -> f32 {
     1.0
@@ -17,7 +17,7 @@ fn default_name() -> String {
     String::new()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, SurrealValue)]
 pub struct Entity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
@@ -44,7 +44,7 @@ pub struct Entity {
     pub created_at: Datetime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct Relation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Thing>,
