@@ -92,7 +92,7 @@ impl MemoryMcpServer {
     }
 
     #[tool(
-        description = "Semantic search over memories. Returns memories most similar to the query, ordered by relevance."
+        description = "Find memories by meaning. Fast single-source vector search. Use when speed matters or query is conceptual."
     )]
     async fn search(&self, params: Parameters<SearchParams>) -> Result<CallToolResult, ErrorData> {
         logic::search::search(&self.state, params.0)
@@ -101,7 +101,7 @@ impl MemoryMcpServer {
     }
 
     #[tool(
-        description = "Full-text keyword search over memories using BM25. Best for exact keyword matching."
+        description = "Find memories by exact keywords (BM25). Use when you know the specific term or phrase to match."
     )]
     async fn search_text(
         &self,
@@ -113,7 +113,7 @@ impl MemoryMcpServer {
     }
 
     #[tool(
-        description = "Hybrid search combining vector similarity, BM25 keywords, and graph context. Best quality retrieval."
+        description = "Best quality retrieval. Combines vector + keyword + graph context (RRF fusion). Use as default for any retrieval task."
     )]
     async fn recall(&self, params: Parameters<RecallParams>) -> Result<CallToolResult, ErrorData> {
         logic::search::recall(&self.state, params.0)
