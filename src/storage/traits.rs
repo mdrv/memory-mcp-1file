@@ -3,9 +3,9 @@
 //! Defines the async interface for all storage operations.
 //! Implemented by SurrealStorage.
 
+use crate::types::Datetime;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use crate::types::Datetime;
 
 use crate::types::{
     CodeChunk, CodeSymbol, Direction, Entity, IndexStatus, Memory, MemoryUpdate, Relation,
@@ -52,6 +52,14 @@ pub trait StorageBackend: Send + Sync {
         project_id: Option<&str>,
         limit: usize,
     ) -> Result<Vec<ScoredCodeChunk>>;
+
+    /// Vector similarity search on code symbols (for graph-based recall_code)
+    async fn vector_search_symbols(
+        &self,
+        embedding: &[f32],
+        project_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<CodeSymbol>>;
 
     // ─────────────────────────────────────────────────────────────────────────
     // BM25 search
@@ -226,6 +234,12 @@ pub trait StorageBackend: Send + Sync {
         symbol_id: &str,
         depth: usize,
         direction: Direction,
+    ) -> Result<(Vec<CodeSymbol>, Vec<SymbolRelation>)>;
+
+    /// Get code subgraph for a set of symbol IDs (for recall_code PageRank)
+    async fn get_code_subgraph(
+        &self,
+        symbol_ids: &[String],
     ) -> Result<(Vec<CodeSymbol>, Vec<SymbolRelation>)>;
 
     /// Search symbols by name pattern

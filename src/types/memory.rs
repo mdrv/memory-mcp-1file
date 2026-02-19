@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::{Datetime, SurrealValue, Thing};
+use serde::{Deserialize, Serialize};
 
 use super::EmbeddingState;
 
@@ -117,8 +117,8 @@ impl Memory {
             memory_type: MemoryType::Semantic,
             user_id: None,
             metadata: None,
-            event_time: now.clone(),
-            ingestion_time: now.clone(),
+            event_time: now,
+            ingestion_time: now,
             valid_from: now,
             valid_until: None,
             importance_score: 1.0,

@@ -22,8 +22,7 @@ Works perfectly with:
 Unlike other memory solutions that require a complex stack (Python + Vector DB + Graph DB), this project is **a single, self-contained executable**.
 
 *   ✅ **No External Database** (SurrealDB is embedded)
-*   ✅ **No Python Dependencies** (Embedding models run via embedded ONNX runtime)
-*   ✅ **No API Keys Required** (All models run locally on CPU)
+*   ✅ **No API Keys, No Cloud, No Python** — Everything runs **100% locally** via an embedded ONNX runtime. The embedding model is baked into the binary and runs on CPU. Nothing leaves your machine.
 *   ✅ **Zero Setup** (Just run one Docker container or binary)
 
 It combines:
@@ -295,7 +294,7 @@ Or with Docker:
 
 ## 🛠️ Tools Available
 
-The server exposes **26 tools** to the AI model, organized into logical categories.
+The server exposes **27 tools** to the AI model, organized into logical categories.
 
 ### 🧠 Core Memory Management
 | Tool | Description |
@@ -332,6 +331,7 @@ The server exposes **26 tools** to the AI model, organized into logical categori
 | `list_projects` | List all indexed projects. |
 | `delete_project` | Remove a project and its code chunks from the index. |
 | `search_code` | Semantic search over code chunks. |
+| `recall_code` | **Hybrid code search** (Vector + BM25 + Symbol Graph PageRank via RRF). Best quality code retrieval. |
 | `search_symbols` | Search for functions/classes by name. |
 | `get_callers` | Find functions that call a given symbol. |
 | `get_callees` | Find functions called by a given symbol. |

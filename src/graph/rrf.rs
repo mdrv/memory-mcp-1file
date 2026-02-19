@@ -8,10 +8,15 @@ use std::collections::HashMap;
 /// RRF constant (standard value from literature)
 pub const RRF_K: f32 = 60.0;
 
-/// Default weights for hybrid search
+/// Default weights for hybrid memory search
 pub const DEFAULT_VECTOR_WEIGHT: f32 = 0.40;
 pub const DEFAULT_BM25_WEIGHT: f32 = 0.15;
 pub const DEFAULT_PPR_WEIGHT: f32 = 0.45;
+
+/// Default weights for hybrid code search (recall_code)
+pub const DEFAULT_CODE_VECTOR_WEIGHT: f32 = 0.50;
+pub const DEFAULT_CODE_BM25_WEIGHT: f32 = 0.20;
+pub const DEFAULT_CODE_PPR_WEIGHT: f32 = 0.30;
 
 /// Individual score components for a merged result
 #[derive(Debug, Clone, Default)]

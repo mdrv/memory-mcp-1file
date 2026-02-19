@@ -10,7 +10,7 @@ use crate::server::params::{
     CreateEntityParams, CreateRelationParams, DetectCommunitiesParams, GetRelatedParams,
 };
 use crate::storage::StorageBackend;
-use crate::types::{Datetime, Direction, Entity, Relation, RecordId, ThingId};
+use crate::types::{Datetime, Direction, Entity, RecordId, Relation, ThingId};
 
 use super::{error_response, strip_entity_embeddings, success_json};
 
@@ -63,10 +63,7 @@ pub async fn create_relation(
 
     let relation = Relation {
         id: None,
-        from_entity: RecordId::new(
-            "entities",
-            from_id.id().to_string(),
-        ),
+        from_entity: RecordId::new("entities", from_id.id().to_string()),
         to_entity: RecordId::new("entities", to_id.id().to_string()),
         relation_type: params.relation_type,
         weight: params.weight.unwrap_or(1.0).clamp(0.0, 1.0),

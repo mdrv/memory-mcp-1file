@@ -36,8 +36,8 @@ pub async fn store_memory(
         memory_type: mem_type,
         user_id: params.user_id,
         metadata: params.metadata,
-        event_time: now.clone(),
-        ingestion_time: now.clone(),
+        event_time: now,
+        ingestion_time: now,
         valid_from: now,
         ..Default::default()
     };

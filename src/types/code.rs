@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::{Datetime, SurrealValue, Thing};
+use serde::{Deserialize, Serialize};
 
 fn default_datetime() -> Datetime {
     Datetime::default()

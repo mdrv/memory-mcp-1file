@@ -224,6 +224,18 @@ impl MemoryMcpServer {
     }
 
     #[tool(
+        description = "Best quality code retrieval. Combines semantic vectors, keyword matching (BM25), and code symbol graph analysis (calls/imports/inheritance) using Reciprocal Rank Fusion. Returns ranked code chunks with score breakdown per channel. Use as default for any code retrieval task."
+    )]
+    async fn recall_code(
+        &self,
+        params: Parameters<RecallCodeParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        logic::code::recall_code(&self.state, params.0)
+            .await
+            .map_err(to_rpc_error)
+    }
+
+    #[tool(
         description = "Get indexing status for a project. Statuses: indexing, completed, failed."
     )]
     async fn get_index_status(

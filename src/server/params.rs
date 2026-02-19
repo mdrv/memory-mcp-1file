@@ -73,6 +73,28 @@ pub struct RecallParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecallCodeParams {
+    /// Natural language or keyword query for code search
+    pub query: String,
+    /// Filter by project ID (if omitted, searches all projects)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    /// Max results to return (default: 10)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+    /// Weight for vector (semantic) channel (default: 0.50)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_weight: Option<f32>,
+    /// Weight for BM25 (keyword) channel (default: 0.20)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bm25_weight: Option<f32>,
+    /// Weight for graph (PageRank) channel (default: 0.30)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ppr_weight: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CreateEntityParams {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]

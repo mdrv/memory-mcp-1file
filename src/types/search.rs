@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use super::SurrealValue;
 use super::code::{ChunkType, Language};
 use super::memory::MemoryType;
+use super::SurrealValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct SearchResult {
