@@ -102,7 +102,13 @@ impl EmbeddingEngine {
             }
             EngineBackend::Qwen3 => {
                 let qwen_cfg: Qwen3Config = serde_json::from_slice(&std::fs::read(config_path)?)?;
-                InnerModel::Qwen3(std::sync::Mutex::new(Qwen3Model::new(&qwen_cfg, vb)?))
+                // Qwen3-Embedding-0.6B safetensors stores tensors WITHOUT "model." prefix
+                // (e.g. "embed_tokens.weight" instead of "model.embed_tokens.weight"),
+                // but candle's Qwen3Model::new() internally uses vb.pp("model.embed_tokens").
+                // Fix: strip the "model." prefix that candle adds during lookup.
+                let vb_fixed = vb
+                    .rename_f(|name: &str| name.strip_prefix("model.").unwrap_or(name).to_string());
+                InnerModel::Qwen3(std::sync::Mutex::new(Qwen3Model::new(&qwen_cfg, vb_fixed)?))
             }
             EngineBackend::Gemma => {
                 anyhow::bail!("Gemma backend is not yet implemented. The referenced model uses ONNX format which requires the `ort` runtime. Use --model qwen3 for a similar MRL-capable model.");
