@@ -359,6 +359,7 @@ Environment variables or CLI args:
 | `--timeout` | `TIMEOUT_MS` | `30000` | Timeout in milliseconds |
 | `--idle-timeout` | `IDLE_TIMEOUT` | `0` | Idle timeout in minutes. 0 = disabled |
 | `--log-level` | `LOG_LEVEL` | `info` | Verbosity |
+| *(None)* | `HF_TOKEN` | *(None)* | HuggingFace Token (ONLY required for gated models like `gemma`) |
 
 ### 🧠 Available Models
 
@@ -380,6 +381,25 @@ Models marked with **(MRL)** support dynamically truncating the output embedding
 Use the `--mrl-dim` argument to specify the desired size. If omitted, the default is the model's native base dimension (e.g., 1024 for Qwen3).
 
 **Warning:** Once your database is created with a specific dimension, you cannot change it without wiping the data directory.
+
+### 🔒 Gated Models & Authentication (Gemma)
+
+By default, the server uses **Qwen3**, which is fully open-source and downloads automatically without any authentication.
+
+However, if you choose to use **Gemma** (`--model gemma`), you must authenticate because it is a "Gated Model" with a proprietary license. 
+
+To use Gemma:
+1. Go to [google/embeddinggemma-300m](https://huggingface.co/google/embeddinggemma-300m) on Hugging Face.
+2. Log in and click **"Agree to access repository"**.
+3. Generate an Access Token at [HF Tokens](https://huggingface.co/settings/tokens) (Read access is enough).
+4. Start the server with the token:
+
+```bash
+# Using environment variable
+HF_TOKEN="hf_your_token_here" memory-mcp --model gemma
+
+# Or via .env file (see .env.example)
+```
 
 > [!WARNING]
 > **Changing Models & Data Compatibility**
