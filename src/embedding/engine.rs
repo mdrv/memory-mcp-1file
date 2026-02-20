@@ -173,12 +173,107 @@ impl EmbeddingEngine {
                         let mut model_mut = model_mutex
                             .lock()
                             .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+                        let hidden = model_mut.forward(&input_ids, 0)?;
+
+                        let seq_len = hidden.dim(1)?;
+                        let embedding = hidden.narrow(1, seq_len - 1, 1)?.squeeze(1)?;
+
+                        let normalized = l2_normalize(&embedding)?;
+
+                        let vec = normalized.squeeze(0)?.to_vec1::<f32>()?;
+                        self.apply_mrl(vec)
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+
+    pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        match &self.inner {
+            InnerModel::Mock => {
+                let mut results = Vec::with_capacity(texts.len());
+                for text in texts {
+                    results.push(self.embed(text)?);
+                }
+                Ok(results)
+            }
+            _ => {
+                let tokenizer = self.tokenizer.as_ref().unwrap();
+                let encodes = tokenizer
+                    .encode_batch(texts.to_vec(), true)
+                    .map_err(|e| anyhow!("Batch tokenization failed: {}", e))?;
+
+                let max_len = match self.inner {
+                    InnerModel::Qwen3(_) => MAX_SEQ_LEN_QWEN3,
+                    _ => MAX_SEQ_LEN_BERT,
+                };
+
+                let unpadded_token_ids: Vec<Vec<u32>> = encodes
+                    .into_iter()
+                    .map(|enc| {
+                        let mut ids = enc.get_ids().to_vec();
+                        if ids.len() > max_len {
+                            ids.truncate(max_len);
+                        }
+                        ids
+                    })
+                    .collect();
+
+                let actual_lengths: Vec<usize> =
+                    unpadded_token_ids.iter().map(|ids| ids.len()).collect();
+                let max_seq_len_in_batch = actual_lengths.iter().copied().max().unwrap_or(0);
+
+                let mut token_ids = unpadded_token_ids.clone();
+                for ids in &mut token_ids {
+                    ids.resize(max_seq_len_in_batch, 0); // 0 is usually PAD
+                }
+
+                match &self.inner {
+                    InnerModel::Bert(model) => {
+                        let attention_mask: Vec<Vec<u32>> = token_ids
+                            .iter()
+                            .map(|ids| ids.iter().map(|&id| if id == 0 { 0 } else { 1 }).collect())
+                            .collect();
+
+                        let token_ids_tensor = Tensor::new(token_ids, &self.device)?;
+                        let attention_mask_tensor = Tensor::new(attention_mask, &self.device)?;
+                        let token_type_ids =
+                            Tensor::zeros(token_ids_tensor.shape(), DType::U32, &self.device)?;
+
+                        let hidden = model.forward(&token_ids_tensor, &token_type_ids, None)?;
+                        let (_batch_size, _seq_len, _hidden_size) = hidden.dims3()?;
+
+                        let mask_expanded = attention_mask_tensor
+                            .unsqueeze(2)?
+                            .broadcast_as(hidden.shape())?
+                            .to_dtype(DType::F32)?;
+                        let hidden_masked = (hidden * &mask_expanded)?;
+                        let sum_hidden = hidden_masked.sum(1)?;
+                        let sum_mask = mask_expanded.sum(1)?.clamp(1e-9, f64::MAX)?;
+                        let mean_pooled = (sum_hidden / sum_mask)?;
+
+                        let normalized = l2_normalize(&mean_pooled)?;
+
+                        let mut results = Vec::with_capacity(texts.len());
+                        for i in 0..texts.len() {
+                            let vec = normalized.get(i)?.to_vec1::<f32>()?;
+                            results.push(self.apply_mrl(vec)?);
+                        }
+                        Ok(results)
+                    }
+                    InnerModel::Qwen3(model_mutex) => {
+                        let mut results = Vec::with_capacity(texts.len());
+                        let mut model_mut = model_mutex
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
                         for (ids, &actual_len) in
                             unpadded_token_ids.iter().zip(actual_lengths.iter())
                         {
-                            // CLEAR KV CACHE BEFORE FORWARD PASS!
-                            model_mut.clear_kv_cache();
-
                             let input = Tensor::new(ids.as_slice(), &self.device)?.unsqueeze(0)?;
                             let hidden = model_mut.forward(&input, 0)?;
 
