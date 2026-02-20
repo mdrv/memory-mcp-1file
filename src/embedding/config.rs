@@ -39,7 +39,7 @@ impl ModelType {
             Self::Nomic => "nomic-ai/nomic-embed-text-v1.5",
             Self::BgeM3 => "BAAI/bge-m3",
             Self::Qwen3 => "Qwen/Qwen3-Embedding-0.6B",
-            Self::Gemma => "onnx-community/embeddinggemma-300m-ONNX",
+            Self::Gemma => "google/embeddinggemma-300m",
             Self::Mock => "mock",
         }
     }
