@@ -1,6 +1,6 @@
 [package]
 name = "memory-mcp"
-version = "0.4.4"
+version = "0.4.5"
 edition = "2021"
 description = "MCP memory server for AI agents"
 license = "MIT"
@@ -76,6 +76,11 @@ redb = "3.1.0"
 bincode = { version = "=2.0.1", features = ["serde"] }
 
 
+# Local patch to expose `Model::clear_kv_cache()` as `pub` so we can reset
+# the KV cache between independent embedding requests. The upstream 0.9.2
+# declares it as private (`fn`). We copy the crate verbatim and flip it to
+# `pub fn`. No other changes to the source.
+
 [dev-dependencies]
 tempfile = "3"
 filetime = "0.2"
@@ -96,3 +101,7 @@ lto = "off"
 codegen-units = 256
 panic = "abort"
 strip = true
+
+
+[patch.crates-io]
+candle-transformers = { path = "_patches/candle-transformers" }
