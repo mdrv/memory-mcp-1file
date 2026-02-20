@@ -1631,8 +1631,7 @@ impl StorageBackend for SurrealStorage {
 mod tests {
     use super::*;
     use crate::types::{
-        ChunkType, Datetime, Entity, Language, Memory, MemoryType, MemoryUpdate, RecordId,
-        Relation, Thing,
+        ChunkType, Datetime, Entity, Language, Memory, MemoryType, MemoryUpdate, RecordId, Relation,
     };
     use tempfile::tempdir;
 
@@ -1787,7 +1786,7 @@ mod tests {
             .await
             .unwrap();
 
-        let (related, rels_out) = storage
+        let (related, _rels_out) = storage
             .get_related(&e1_id, 1, Direction::Outgoing)
             .await
             .unwrap();

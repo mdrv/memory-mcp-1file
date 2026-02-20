@@ -55,6 +55,7 @@ impl EmbeddingService {
         let status = self.status.clone();
         let load_state = self.load_state.clone();
         let model = self.config.model;
+        let mrl_dim = self.config.mrl_dim;
         let cache_dir = self.config.cache_dir.clone();
 
         if model == ModelType::Mock {
@@ -106,7 +107,7 @@ impl EmbeddingService {
 
             tracing::info!("Loading embedding model: {:?}", model);
 
-            match Self::load_model_with_tracking(model, cache_dir, load_state.clone()) {
+            match Self::load_model_with_tracking(model, mrl_dim, cache_dir, load_state.clone()) {
                 Ok(engine) => {
                     rt.block_on(async {
                         let mut state = load_state.write().await;
@@ -144,6 +145,7 @@ impl EmbeddingService {
 
     fn load_model_with_tracking(
         model: ModelType,
+        mrl_dim: Option<usize>,
         cache_dir: Option<PathBuf>,
         load_state: Arc<RwLock<LoadState>>,
     ) -> anyhow::Result<EmbeddingEngine> {
@@ -206,7 +208,18 @@ impl EmbeddingService {
             state.progress_percent = None;
         });
 
-        EmbeddingEngine::from_files(model, &config_path, &tokenizer_path, &weights_path)
+        EmbeddingEngine::from_files(
+            &EmbeddingConfig {
+                model,
+                mrl_dim,
+                cache_size: 0,
+                batch_size: 1,
+                cache_dir: cache_dir.clone(),
+            },
+            &config_path,
+            &tokenizer_path,
+            &weights_path,
+        )
     }
 
     pub async fn embed(&self, text: &str) -> Result<Vec<f32>> {
@@ -216,7 +229,7 @@ impl EmbeddingService {
         }
 
         if self.config.model == ModelType::Mock {
-            let dim = self.config.model.dimensions();
+            let dim = self.config.output_dim();
             let mut vec = vec![0.0; dim];
             let hash = blake3::hash(text.as_bytes());
             let bytes = hash.as_bytes();
@@ -296,7 +309,7 @@ impl EmbeddingService {
     }
 
     pub fn dimensions(&self) -> usize {
-        self.config.model.dimensions()
+        self.config.output_dim()
     }
 
     pub fn get_engine(&self) -> Arc<RwLock<Option<EmbeddingEngine>>> {

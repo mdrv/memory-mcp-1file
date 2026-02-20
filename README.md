@@ -284,7 +284,7 @@ Or with Docker:
 
 ## ✨ Key Features
 
-- **Semantic Memory**: Stores text with vector embeddings (`e5-small` by default) for "vibe-based" retrieval.
+- **Semantic Memory**: Stores text with vector embeddings (`qwen3` by default) for "vibe-based" retrieval.
 - **Graph Memory**: Tracks entities (`User`, `Project`, `Tech`) and their relations (`uses`, `likes`). Supports PageRank-based traversal.
 - **Code Intelligence**: Indexes local project directories (AST-based chunking) for Rust, Python, TypeScript, JavaScript, Go, Java, and **Dart/Flutter**. Tracks **calls, imports, extends, implements, and mixin** relationships between symbols.
 - **Temporal Validity**: Memories can have `valid_from` and `valid_until` dates.
@@ -352,7 +352,12 @@ Environment variables or CLI args:
 | Arg | Env | Default | Description |
 |-----|-----|---------|-------------|
 | `--data-dir` | `DATA_DIR` | `./data` | DB location |
-| `--model` | `EMBEDDING_MODEL` | `e5_multi` | Embedding model (`e5_small`, `e5_multi`, `nomic`, `bge_m3`) |
+| `--model` | `EMBEDDING_MODEL` | `qwen3` | Embedding model (`qwen3`, `gemma`, `bge_m3`, `nomic`, `e5_multi`, `e5_small`) |
+| `--mrl-dim` | `MRL_DIM` | *(native)* | Output dimension for MRL-supported models (e.g. 64, 128, 256, 512, 1024 for Qwen3). Defaults to the model's native maximum dimension (1024 for Qwen3). |
+| `--batch-size` | `BATCH_SIZE` | `8` | Maximum batch size for embedding inference |
+| `--cache-size` | `CACHE_SIZE` | `1000` | LRU cache capacity for embeddings |
+| `--timeout` | `TIMEOUT_MS` | `30000` | Timeout in milliseconds |
+| `--idle-timeout` | `IDLE_TIMEOUT` | `0` | Idle timeout in minutes. 0 = disabled |
 | `--log-level` | `LOG_LEVEL` | `info` | Verbosity |
 
 ### 🧠 Available Models
@@ -361,10 +366,20 @@ You can switch the embedding model using the `--model` arg or `EMBEDDING_MODEL` 
 
 | Argument Value | HuggingFace Repo | Dimensions | Size | Use Case |
 | :--- | :--- | :--- | :--- | :--- |
+| `qwen3` | `Qwen/Qwen3-Embedding-0.6B` | 1024 (MRL) | 1.2 GB | **Default**. Top open-source 2026 model, 32K context, MRL support. |
+| `gemma` | `onnx-community/embeddinggemma-300m-ONNX` | 768 (MRL) | ~195 MB | Lighter alternative with MRL support. (Requires proprietary license agreement) |
+| `bge_m3` | `BAAI/bge-m3` | 1024 | 2.3 GB | State-of-the-art multilingual hybrid retrieval. Heavy. |
+| `nomic` | `nomic-ai/nomic-embed-text-v1.5` | 768 | 1.9 GB | High quality long-context BERT-compatible. |
+| `e5_multi` | `intfloat/multilingual-e5-base` | 768 | 1.1 GB | Legacy; kept for backward compatibility. |
 | `e5_small` | `intfloat/multilingual-e5-small` | 384 | 134 MB | Fastest, minimal RAM. Good for dev/testing. |
-| `e5_multi` | `intfloat/multilingual-e5-base` | 768 | 1.1 GB | **Default**. Best balance of quality/speed. |
-| `nomic` | `nomic-ai/nomic-embed-text-v1.5` | 768 | 1.9 GB | High quality long-context embeddings. |
-| `bge_m3` | `BAAI/bge-m3` | 1024 | 2.3 GB | State-of-the-art multilingual quality. Heavy. |
+
+### 📉 Matryoshka Representation Learning (MRL)
+
+Models marked with **(MRL)** support dynamically truncating the output embedding vector to a smaller dimension (e.g., 512, 256, 128) with minimal loss of accuracy. This saves database storage and speeds up vector search.
+
+Use the `--mrl-dim` argument to specify the desired size. If omitted, the default is the model's native base dimension (e.g., 1024 for Qwen3).
+
+**Warning:** Once your database is created with a specific dimension, you cannot change it without wiping the data directory.
 
 > [!WARNING]
 > **Changing Models & Data Compatibility**

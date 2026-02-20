@@ -1,48 +1,66 @@
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
-use candle_core::{Device, Tensor};
+use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
-use candle_transformers::models::bert::{BertModel, Config, DTYPE};
+use candle_transformers::models::bert::{BertModel, Config as BertConfig};
+use candle_transformers::models::qwen3::{Config as Qwen3Config, Model as Qwen3Model};
 use hf_hub::api::sync::Api;
 use tokenizers::Tokenizer;
 
 /// Maximum token sequence length for BERT models.
 /// Attention is O(n²) — exceeding this causes massive memory usage.
-const MAX_SEQ_LEN: usize = 512;
+const MAX_SEQ_LEN_BERT: usize = 512;
+const MAX_SEQ_LEN_QWEN3: usize = 512; // MRL capable Qwen3
 
-use super::config::ModelType;
+use super::config::{EmbeddingConfig, EngineBackend};
+
+enum InnerModel {
+    Bert(BertModel),
+    Qwen3(std::sync::Mutex<Qwen3Model>),
+    #[allow(dead_code)]
+    Gemma, // Placeholder
+    Mock,
+}
+
+fn l2_normalize(t: &Tensor) -> Result<Tensor> {
+    let norm = t.sqr()?.sum_keepdim(1)?.sqrt()?.clamp(1e-9_f64, f64::MAX)?;
+    t.broadcast_div(&norm).map_err(Into::into)
+}
 
 pub struct EmbeddingEngine {
-    model: Option<BertModel>,
+    inner: InnerModel,
     tokenizer: Option<Tokenizer>,
     device: Device,
     dimensions: usize,
+    mrl_dim: Option<usize>,
 }
 
 impl EmbeddingEngine {
-    pub fn new(model_type: ModelType) -> Result<Self> {
+    pub fn new(config: &EmbeddingConfig) -> Result<Self> {
         let device = Device::Cpu;
-        let dimensions = model_type.dimensions();
+        let base_dims = config.model.base_dimensions();
+        let backend = config.model.engine_backend();
 
-        if model_type == ModelType::Mock {
+        if backend == EngineBackend::Mock {
             return Ok(Self {
-                model: None,
+                inner: InnerModel::Mock,
                 tokenizer: None,
                 device,
-                dimensions,
+                dimensions: base_dims,
+                mrl_dim: config.mrl_dim,
             });
         }
 
         let api = Api::new()?;
-        let repo = api.model(model_type.repo_id().to_string());
+        let repo = api.model(config.model.repo_id().to_string());
 
         let config_filename = repo.get("config.json")?;
         let tokenizer_filename = repo.get("tokenizer.json")?;
         let weights_filename = repo.get("model.safetensors")?;
 
         Self::from_files(
-            model_type,
+            config,
             &config_filename,
             &tokenizer_filename,
             &weights_filename,
@@ -50,219 +68,243 @@ impl EmbeddingEngine {
     }
 
     pub fn from_files(
-        model_type: ModelType,
+        config: &EmbeddingConfig,
         config_path: &Path,
         tokenizer_path: &Path,
         weights_path: &Path,
     ) -> Result<Self> {
         let device = Device::Cpu;
-        let dimensions = model_type.dimensions();
+        let mut tokenizer = Tokenizer::from_file(tokenizer_path)
+            .map_err(|e| anyhow!("Failed to load tokenizer: {}", e))?;
 
-        if model_type == ModelType::Mock {
-            return Ok(Self {
-                model: None,
-                tokenizer: None,
-                device,
-                dimensions,
-            });
+        // Enable padding if not already present
+        if tokenizer.get_padding().is_none() {
+            let pad_id = tokenizer.token_to_id("[PAD]").unwrap_or(0);
+            let pad_params = tokenizers::PaddingParams {
+                strategy: tokenizers::PaddingStrategy::BatchLongest,
+                direction: tokenizers::PaddingDirection::Right,
+                pad_to_multiple_of: None,
+                pad_id,
+                pad_type_id: 0,
+                pad_token: String::from("[PAD]"),
+            };
+            tokenizer.with_padding(Some(pad_params));
         }
 
-        let config_content = std::fs::read_to_string(config_path)?;
-        let config: Config = serde_json::from_str(&config_content)?;
+        let vb =
+            unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)? };
 
-        let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(anyhow::Error::msg)?;
-
-        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], DTYPE, &device)? };
-        let model = BertModel::load(vb, &config)?;
+        let backend = config.model.engine_backend();
+        let inner = match backend {
+            EngineBackend::Bert => {
+                let bert_cfg: BertConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
+                InnerModel::Bert(BertModel::load(vb, &bert_cfg)?)
+            }
+            EngineBackend::Qwen3 => {
+                let qwen_cfg: Qwen3Config = serde_json::from_slice(&std::fs::read(config_path)?)?;
+                InnerModel::Qwen3(std::sync::Mutex::new(Qwen3Model::new(&qwen_cfg, vb)?))
+            }
+            EngineBackend::Gemma => {
+                anyhow::bail!("Gemma backend is not yet implemented. The referenced model uses ONNX format which requires the `ort` runtime. Use --model qwen3 for a similar MRL-capable model.");
+            }
+            EngineBackend::Mock => InnerModel::Mock,
+        };
 
         Ok(Self {
-            model: Some(model),
+            inner,
             tokenizer: Some(tokenizer),
             device,
-            dimensions,
+            dimensions: config.model.base_dimensions(),
+            mrl_dim: config.mrl_dim,
         })
     }
 
     pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        if self.model.is_none() || self.tokenizer.is_none() {
-            // Mock embedding: deterministic but random-looking
-            let mut vec = vec![0.0; self.dimensions];
-            let hash = blake3::hash(text.as_bytes());
-            let hash_bytes = hash.as_bytes();
-            for i in 0..self.dimensions {
-                let byte = hash_bytes[i % 32];
-                vec[i] = (byte as f32 / 255.0) * 2.0 - 1.0;
+        match &self.inner {
+            InnerModel::Mock => {
+                let hash = blake3::hash(text.as_bytes());
+                let bytes = hash.as_bytes();
+                let mut vec = vec![0.0f32; self.dimensions];
+                for (i, &b) in bytes.iter().enumerate() {
+                    vec[i % self.dimensions] += (b as f32) / 255.0;
+                }
+                self.apply_mrl(vec)
             }
-            return Ok(vec);
+            _ => {
+                let tokenizer = self.tokenizer.as_ref().unwrap();
+                let tokens = tokenizer
+                    .encode(text, true)
+                    .map_err(|e| anyhow!("Tokenization failed: {}", e))?;
+
+                let mut token_ids = tokens.get_ids().to_vec();
+                let max_len = match self.inner {
+                    InnerModel::Qwen3(_) => MAX_SEQ_LEN_QWEN3,
+                    _ => MAX_SEQ_LEN_BERT,
+                };
+
+                if token_ids.len() > max_len {
+                    token_ids.truncate(max_len);
+                }
+
+                match &self.inner {
+                    InnerModel::Bert(model) => {
+                        let token_ids = Tensor::new(vec![token_ids.clone()], &self.device)?;
+                        let token_type_ids =
+                            Tensor::zeros(token_ids.shape(), DType::U32, &self.device)?;
+                        let hidden = model.forward(&token_ids, &token_type_ids, None)?;
+
+                        let (_n_batch, n_tokens, _hidden_size) = hidden.dims3()?;
+                        let sum = hidden.sum(1)?;
+                        let mean_pooled = (sum / (n_tokens as f64))?;
+
+                        let normalized = l2_normalize(&mean_pooled)?;
+
+                        let vec = normalized.squeeze(0)?.to_vec1::<f32>()?;
+                        self.apply_mrl(vec)
+                    }
+                    InnerModel::Qwen3(model_mutex) => {
+                        let input_ids = Tensor::new(vec![token_ids.clone()], &self.device)?;
+                        let mut model_mut = model_mutex
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+                        let hidden = model_mut.forward(&input_ids, 0)?;
+
+                        let seq_len = hidden.dim(1)?;
+                        let embedding = hidden.narrow(1, seq_len - 1, 1)?.squeeze(1)?;
+
+                        let normalized = l2_normalize(&embedding)?;
+
+                        let vec = normalized.squeeze(0)?.to_vec1::<f32>()?;
+                        self.apply_mrl(vec)
+                    }
+                    _ => unreachable!(),
+                }
+            }
         }
-
-        let tokenizer = self
-            .tokenizer
-            .as_ref()
-            .ok_or_else(|| anyhow!("Tokenizer not loaded"))?;
-        let model = self
-            .model
-            .as_ref()
-            .ok_or_else(|| anyhow!("Model not loaded"))?;
-
-        let tokens = tokenizer.encode(text, true).map_err(anyhow::Error::msg)?;
-
-        let vocab_size = tokenizer.get_vocab_size(true) as u32;
-        let unk_id = tokenizer.token_to_id("[UNK]").unwrap_or(0);
-        let token_ids: Vec<u32> = tokens
-            .get_ids()
-            .iter()
-            .take(MAX_SEQ_LEN) // Truncate to prevent O(n²) attention OOM
-            .map(|&id| if id >= vocab_size { unk_id } else { id })
-            .collect();
-
-        let token_ids_tensor = Tensor::new(&token_ids[..], &self.device)?.unsqueeze(0)?;
-        let type_ids: Vec<u32> = tokens
-            .get_type_ids()
-            .iter()
-            .take(MAX_SEQ_LEN)
-            .copied()
-            .collect();
-        let token_type_ids = Tensor::new(type_ids.as_slice(), &self.device)?.unsqueeze(0)?;
-
-        let embeddings = model.forward(&token_ids_tensor, &token_type_ids, None)?;
-
-        let (_n_batch, seq_len, _hidden_size) = embeddings.dims3()?;
-        let pooled = (embeddings.sum(1)? / (seq_len as f64))?;
-        let pooled = pooled.get(0)?;
-
-        let norm = pooled.sqr()?.sum_all()?.sqrt()?;
-        let normalized = pooled.broadcast_div(&norm)?;
-
-        let vec: Vec<f32> = normalized.to_vec1()?;
-
-        debug_assert_eq!(vec.len(), self.dimensions);
-        Ok(vec)
     }
 
     pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
-            return Ok(vec![]);
+            return Ok(Vec::new());
         }
 
-        if self.model.is_none() || self.tokenizer.is_none() {
-            // Mock embedding: deterministic but random-looking for each text
-            let mut results = Vec::with_capacity(texts.len());
-            for text in texts {
-                let mut vec = vec![0.0; self.dimensions];
-                let hash = blake3::hash(text.as_bytes());
-                let hash_bytes = hash.as_bytes();
-                for i in 0..self.dimensions {
-                    let byte = hash_bytes[i % 32];
-                    vec[i] = (byte as f32 / 255.0) * 2.0 - 1.0;
+        match &self.inner {
+            InnerModel::Mock => {
+                let mut results = Vec::with_capacity(texts.len());
+                for text in texts {
+                    results.push(self.embed(text)?);
                 }
-                results.push(vec);
+                Ok(results)
             }
-            return Ok(results);
+            _ => {
+                let tokenizer = self.tokenizer.as_ref().unwrap();
+                let encodes = tokenizer
+                    .encode_batch(texts.to_vec(), true)
+                    .map_err(|e| anyhow!("Batch tokenization failed: {}", e))?;
+
+                let max_len = match self.inner {
+                    InnerModel::Qwen3(_) => MAX_SEQ_LEN_QWEN3,
+                    _ => MAX_SEQ_LEN_BERT,
+                };
+
+                let unpadded_token_ids: Vec<Vec<u32>> = encodes
+                    .into_iter()
+                    .map(|enc| {
+                        let mut ids = enc.get_ids().to_vec();
+                        if ids.len() > max_len {
+                            ids.truncate(max_len);
+                        }
+                        ids
+                    })
+                    .collect();
+
+                let actual_lengths: Vec<usize> =
+                    unpadded_token_ids.iter().map(|ids| ids.len()).collect();
+                let max_seq_len_in_batch = actual_lengths.iter().copied().max().unwrap_or(0);
+
+                let mut token_ids = unpadded_token_ids.clone();
+                for ids in &mut token_ids {
+                    ids.resize(max_seq_len_in_batch, 0); // 0 is usually PAD
+                }
+
+                match &self.inner {
+                    InnerModel::Bert(model) => {
+                        let attention_mask: Vec<Vec<u32>> = token_ids
+                            .iter()
+                            .map(|ids| ids.iter().map(|&id| if id == 0 { 0 } else { 1 }).collect())
+                            .collect();
+
+                        let token_ids_tensor = Tensor::new(token_ids, &self.device)?;
+                        let attention_mask_tensor = Tensor::new(attention_mask, &self.device)?;
+                        let token_type_ids =
+                            Tensor::zeros(token_ids_tensor.shape(), DType::U32, &self.device)?;
+
+                        let hidden = model.forward(&token_ids_tensor, &token_type_ids, None)?;
+                        let (_batch_size, _seq_len, _hidden_size) = hidden.dims3()?;
+
+                        let mask_expanded = attention_mask_tensor
+                            .unsqueeze(2)?
+                            .broadcast_as(hidden.shape())?
+                            .to_dtype(DType::F32)?;
+                        let hidden_masked = (hidden * &mask_expanded)?;
+                        let sum_hidden = hidden_masked.sum(1)?;
+                        let sum_mask = mask_expanded.sum(1)?.clamp(1e-9, f64::MAX)?;
+                        let mean_pooled = (sum_hidden / sum_mask)?;
+
+                        let normalized = l2_normalize(&mean_pooled)?;
+
+                        let mut results = Vec::with_capacity(texts.len());
+                        for i in 0..texts.len() {
+                            let vec = normalized.get(i)?.to_vec1::<f32>()?;
+                            results.push(self.apply_mrl(vec)?);
+                        }
+                        Ok(results)
+                    }
+                    InnerModel::Qwen3(model_mutex) => {
+                        let mut results = Vec::with_capacity(texts.len());
+                        let mut model_mut = model_mutex
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+                        for (ids, &actual_len) in
+                            unpadded_token_ids.iter().zip(actual_lengths.iter())
+                        {
+                            let input = Tensor::new(ids.as_slice(), &self.device)?.unsqueeze(0)?;
+                            let hidden = model_mut.forward(&input, 0)?;
+
+                            if actual_len == 0 {
+                                return Err(anyhow::anyhow!("Cannot embed empty token sequence"));
+                            }
+                            let embedding = hidden.narrow(1, actual_len - 1, 1)?.squeeze(1)?;
+
+                            let normalized = l2_normalize(&embedding)?;
+
+                            let vec = normalized.squeeze(0)?.to_vec1::<f32>()?;
+                            results.push(self.apply_mrl(vec)?);
+                        }
+                        Ok(results)
+                    }
+                    _ => unreachable!(),
+                }
+            }
         }
-
-        let tokenizer = self
-            .tokenizer
-            .as_ref()
-            .ok_or_else(|| anyhow!("Tokenizer not loaded"))?;
-        let model = self
-            .model
-            .as_ref()
-            .ok_or_else(|| anyhow!("Model not loaded"))?;
-
-        let vocab_size = tokenizer.get_vocab_size(true) as u32;
-        let unk_id = tokenizer.token_to_id("[UNK]").unwrap_or(0);
-
-        // 1. Tokenize all texts
-        let mut all_token_ids = Vec::with_capacity(texts.len());
-        let mut all_token_type_ids = Vec::with_capacity(texts.len());
-        let mut max_len = 0;
-
-        for text in texts {
-            let tokens = tokenizer
-                .encode(text.as_str(), true)
-                .map_err(anyhow::Error::msg)?;
-            let token_ids: Vec<u32> = tokens
-                .get_ids()
-                .iter()
-                .take(MAX_SEQ_LEN) // Truncate to prevent O(n²) attention OOM
-                .map(|&id| if id >= vocab_size { unk_id } else { id })
-                .collect();
-            let type_ids: Vec<u32> = tokens
-                .get_type_ids()
-                .iter()
-                .take(MAX_SEQ_LEN)
-                .copied()
-                .collect();
-            max_len = max_len.max(token_ids.len());
-            all_token_ids.push(token_ids);
-            all_token_type_ids.push(type_ids);
-        }
-
-        // 2. Pad and create batch tensors with attention mask
-        // Attention mask is required for correct mean pooling — padding tokens
-        // get non-zero BERT outputs that corrupt the average without masking.
-
-        // Flatten for Tensor creation
-        let mut flat_token_ids = Vec::with_capacity(texts.len() * max_len);
-        let mut flat_type_ids = Vec::with_capacity(texts.len() * max_len);
-        let mut flat_attention_mask = Vec::with_capacity(texts.len() * max_len);
-
-        for (ids, types) in all_token_ids.iter().zip(all_token_type_ids.iter()) {
-            // Copy data
-            flat_token_ids.extend_from_slice(ids);
-            flat_type_ids.extend_from_slice(types);
-            flat_attention_mask.extend(std::iter::repeat_n(1u32, ids.len()));
-
-            // Padding (0)
-            let pad_len = max_len - ids.len();
-            flat_token_ids.extend(std::iter::repeat_n(0, pad_len));
-            flat_type_ids.extend(std::iter::repeat_n(0, pad_len));
-            flat_attention_mask.extend(std::iter::repeat_n(0u32, pad_len));
-        }
-
-        let batch_token_ids = Tensor::new(flat_token_ids.as_slice(), &self.device)?
-            .reshape((texts.len(), max_len))?;
-        drop(flat_token_ids);
-
-        let batch_token_type_ids =
-            Tensor::new(flat_type_ids.as_slice(), &self.device)?.reshape((texts.len(), max_len))?;
-        drop(flat_type_ids);
-
-        // 3. Forward pass
-        let embeddings = model.forward(&batch_token_ids, &batch_token_type_ids, None)?;
-        drop(batch_token_ids);
-        drop(batch_token_type_ids);
-
-        // 4. Masked mean pooling — only average over real (non-padding) tokens
-        let attention_mask = Tensor::new(flat_attention_mask.as_slice(), &self.device)?
-            .reshape((texts.len(), max_len))?
-            .to_dtype(DTYPE)?
-            .unsqueeze(2)?; // (batch, seq, 1) for broadcasting
-        drop(flat_attention_mask);
-        let masked = embeddings.broadcast_mul(&attention_mask)?;
-        drop(embeddings);
-        let token_counts = attention_mask.sum(1)?; // (batch, 1) — real token count per sequence
-        drop(attention_mask);
-        let pooled = masked.sum(1)?.broadcast_div(&token_counts)?;
-        drop(masked);
-        drop(token_counts);
-
-        // 5. Normalize
-        let norms_sq = pooled.sqr()?.sum(1)?;
-        let norms = norms_sq.sqrt()?;
-        let norms_reshaped = norms.reshape((texts.len(), 1))?;
-        let normalized = pooled.broadcast_div(&norms_reshaped)?;
-        drop(pooled);
-        drop(norms_reshaped);
-
-        // 6. Extract vectors
-        let vectors: Vec<Vec<f32>> = normalized.to_vec2()?;
-
-        Ok(vectors)
     }
 
     pub fn dimensions(&self) -> usize {
-        self.dimensions
+        self.mrl_dim.unwrap_or(self.dimensions)
+    }
+
+    fn apply_mrl(&self, mut vec: Vec<f32>) -> Result<Vec<f32>> {
+        if let Some(dim) = self.mrl_dim {
+            if dim < vec.len() {
+                vec.truncate(dim);
+                let norm: f32 = vec.iter().map(|v| v * v).sum::<f32>().sqrt();
+                if norm > 1e-9_f32 {
+                    for v in &mut vec {
+                        *v /= norm;
+                    }
+                }
+            }
+        }
+        Ok(vec)
     }
 }

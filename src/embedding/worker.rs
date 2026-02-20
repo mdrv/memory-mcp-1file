@@ -124,7 +124,8 @@ impl EmbeddingWorker {
         }
 
         if !misses_texts.is_empty() {
-            match engine.embed_batch(&misses_texts) {
+            let embed_result = tokio::task::block_in_place(|| engine.embed_batch(&misses_texts));
+            match embed_result {
                 Ok(new_embeddings) => {
                     for (local_idx, vec) in new_embeddings.into_iter().enumerate() {
                         let original_idx = misses_indices[local_idx];
@@ -223,6 +224,7 @@ mod tests {
 
         let config = EmbeddingConfig {
             model: ModelType::Mock,
+            mrl_dim: None,
             cache_size: 100,
             batch_size: 10,
             cache_dir: None,

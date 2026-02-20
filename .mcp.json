@@ -13,20 +13,6 @@
                 "/home/unnamed/project/memory-mcp-1file:/project:ro",
                 "ghcr.io/pomazanbohdan/memory-mcp-1file:latest"
             ]
-        },
-        "memory-dev": {
-            "command": "docker",
-            "args": [
-                "run",
-                "--init",
-                "-i",
-                "--rm",
-                "-v",
-                "vida-memory-data-dev:/data",
-                "-v",
-                "/home/unnamed/project/tools/memory-mcp-1file:/project:ro",
-                "memory-mcp:dev"
-            ]
         }
     }
 }

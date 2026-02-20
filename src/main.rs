@@ -18,7 +18,7 @@ struct Cli {
     #[arg(long, env, default_value_os_t = default_data_dir())]
     data_dir: PathBuf,
 
-    #[arg(long, env = "EMBEDDING_MODEL", default_value = "e5_multi")]
+    #[arg(long, env = "EMBEDDING_MODEL", default_value = "qwen3")]
     model: String,
 
     #[arg(long, env, default_value = "1000")]
@@ -26,6 +26,13 @@ struct Cli {
 
     #[arg(long, env, default_value = "8")]
     batch_size: usize,
+
+    #[arg(
+        long,
+        env = "MRL_DIM",
+        help = "MRL output dimension (Qwen3/Gemma only). Defaults to model native dim (1024 for qwen3)"
+    )]
+    mrl_dim: Option<usize>,
 
     #[arg(long, env = "TIMEOUT_MS", default_value = "30000")]
     timeout: u64,
@@ -54,10 +61,24 @@ async fn main() -> anyhow::Result<()> {
 
     if cli.list_models {
         println!("Available models:");
-        println!("  e5_small  - 384 dimensions, 134 MB");
-        println!("  e5_multi  - 768 dimensions, 1.1 GB (default)");
-        println!("  nomic     - 768 dimensions, 1.9 GB");
-        println!("  bge_m3    - 1024 dimensions, 2.3 GB");
+        println!("  qwen3     - 1024 dim, ~1.2 GB (default) [Apache 2.0] Top open-source 2026, MRL, 32K ctx");
+        println!(
+            "  gemma     -  768 dim, ~195 MB           [Gemma license] Lightweight MRL alternative"
+        );
+        println!(
+            "  bge_m3    - 1024 dim, ~420 MB           [MIT] Hybrid dense+sparse+colbert retrieval"
+        );
+        println!(
+            "  nomic     -  768 dim, ~270 MB           [Apache 2.0] Long-context BERT-compatible"
+        );
+        println!(
+            "  e5_multi  -  768 dim, ~180 MB           [MIT] Legacy; kept for backward compat"
+        );
+        println!("  e5_small  -  384 dim,  ~85 MB           [MIT] Minimal RAM, dev/testing only");
+        println!();
+        println!(
+            "NOTE: gemma uses Gemma license (not Apache 2.0). Review terms before commercial use."
+        );
         return Ok(());
     }
 
@@ -76,21 +97,38 @@ async fn main() -> anyhow::Result<()> {
 
     let model: ModelType = cli.model.parse().map_err(|e: String| anyhow::anyhow!(e))?;
 
-    let storage = Arc::new(SurrealStorage::new(&cli.data_dir, model.dimensions()).await?);
-
-    if let Err(e) = storage.check_dimension(model.dimensions()).await {
-        tracing::warn!("Dimension check: {}", e);
+    if model.requires_license_agreement() {
+        tracing::warn!(
+            "LEGAL NOTICE: Model '{}' operates under a proprietary license (not Apache 2.0). \
+             Review terms before commercial use.",
+            model
+        );
     }
-
-    // Initialize Embedding Store (L1/L2 Cache)
-    let embedding_store = Arc::new(EmbeddingStore::new(&cli.data_dir, model.repo_id())?);
 
     let embedding_config = EmbeddingConfig {
         model,
         cache_size: cli.cache_size,
         batch_size: cli.batch_size,
+        mrl_dim: cli.mrl_dim,
         cache_dir: Some(cli.data_dir.join("models")),
     };
+
+    embedding_config
+        .validate()
+        .map_err(|e| anyhow::anyhow!("Invalid embedding configuration: {}", e))?;
+
+    let storage =
+        Arc::new(SurrealStorage::new(&cli.data_dir, embedding_config.output_dim()).await?);
+
+    if let Err(e) = storage.check_dimension(embedding_config.output_dim()).await {
+        tracing::warn!("Dimension check: {}", e);
+    }
+
+    tracing::info!(output_dim = embedding_config.output_dim(), model = %embedding_config.model, "Embedding engine configured");
+
+    // Initialize Embedding Store (L1/L2 Cache)
+    let embedding_store = Arc::new(EmbeddingStore::new(&cli.data_dir, model.repo_id())?);
+
     let embedding = Arc::new(EmbeddingService::new(embedding_config));
     embedding.start_loading();
 

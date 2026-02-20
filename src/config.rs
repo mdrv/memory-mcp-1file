@@ -24,7 +24,7 @@ impl Default for AppConfig {
             data_dir: dirs::data_local_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join("memory-mcp"),
-            model: "e5_multi".to_string(),
+            model: "qwen3".to_string(),
             cache_size: 1000,
             batch_size: 8,
             timeout_ms: 30000,

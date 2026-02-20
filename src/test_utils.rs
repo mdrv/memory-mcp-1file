@@ -30,6 +30,8 @@ impl TestContext {
             model: ModelType::Mock,
             cache_size: 100,
             batch_size: 10,
+            mrl_dim: None,
+
             cache_dir: None,
         };
         let embedding = Arc::new(EmbeddingService::new(embedding_config));
@@ -55,6 +57,7 @@ impl TestContext {
             model: "mock".to_string(),
             cache_size: 100,
             batch_size: 10,
+
             timeout_ms: 5000,
             log_level: "debug".to_string(),
         };
