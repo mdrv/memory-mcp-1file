@@ -9,13 +9,16 @@
                 "--init",
                 "--rm",
                 "-i",
+                "--memory=3g",
+                "-e",
+                "HF_HOME=/data/hf",
                 "--name",
                 "memory-mcp-dev",
                 "-v",
-                "memory-mcp-data-dev:/data",
+                "memory-mcp-1file-data:/data",
                 "-v",
-                "/home/unnamed/project/memory-mcp-1file:/project:ro",
-                "memory-mcp:fast"
+                "/home/unnamed/project/tools/memory-mcp-1file:/project:ro",
+                "ghcr.io/pomazanbohdan/memory-mcp-1file:latest"
             ],
             "enabled": true
         },

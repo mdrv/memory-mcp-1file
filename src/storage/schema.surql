@@ -92,6 +92,8 @@ DEFINE FIELD total_symbols    ON index_status TYPE int DEFAULT 0;
 DEFINE FIELD started_at       ON index_status TYPE datetime;
 DEFINE FIELD completed_at     ON index_status TYPE option<datetime>;
 DEFINE FIELD error_message    ON index_status TYPE option<string>;
+DEFINE FIELD failed_files     ON index_status TYPE array<string> DEFAULT [];
+DEFINE FIELD failed_embeddings ON index_status TYPE int DEFAULT 0;
 
 -- File hashes table (for incremental indexing)
 DEFINE TABLE IF NOT EXISTS file_hashes SCHEMAFULL;

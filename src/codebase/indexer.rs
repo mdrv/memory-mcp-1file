@@ -24,12 +24,34 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
         .unwrap_or("unknown")
         .to_string();
 
-    let mut status = IndexStatus::new(project_id.clone());
-    let monitor = state.progress.get_or_create(&project_id).await;
+    match do_index_project(state.clone(), project_path, &project_id).await {
+        Ok(status) => Ok(status),
+        Err(e) => {
+            tracing::error!(project_id = %project_id, error = %e, "Indexing failed");
+            let mut status = IndexStatus::new(project_id.clone());
+            if let Ok(Some(existing)) = state.storage.get_index_status(&project_id).await {
+                status = existing;
+            }
+            status.status = IndexState::Failed;
+            status.error_message = Some(e.to_string());
+            status.completed_at = Some(crate::types::Datetime::default());
+            let _ = state.storage.update_index_status(status.clone()).await;
+            Err(e)
+        }
+    }
+}
 
-    state.storage.delete_project_chunks(&project_id).await?;
-    state.storage.delete_project_symbols(&project_id).await?;
-    state.storage.delete_file_hashes(&project_id).await?;
+async fn do_index_project(
+    state: Arc<AppState>,
+    project_path: &Path,
+    project_id: &str,
+) -> Result<IndexStatus> {
+    let mut status = IndexStatus::new(project_id.to_string());
+    let monitor = state.progress.get_or_create(project_id).await;
+
+    state.storage.delete_project_chunks(project_id).await?;
+    state.storage.delete_project_symbols(project_id).await?;
+    state.storage.delete_file_hashes(project_id).await?;
 
     let files = scan_directory(project_path)?;
     status.total_files = files.len() as u32;
@@ -58,7 +80,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
 
     for file_path in &files {
         // Skip auto-generated files (no useful semantic content)
-        if is_generated_file(file_path) {
+        if crate::codebase::scanner::is_ignored_file(file_path) {
             tracing::debug!(path = ?file_path, "Skipping generated file");
             status.indexed_files += 1;
             continue;
@@ -80,6 +102,13 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!("Failed to read file {:?}: {}", file_path, e);
+                status
+                    .failed_files
+                    .push(file_path.to_string_lossy().to_string());
+                status.indexed_files += 1;
+                monitor
+                    .indexed_files
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 continue;
             }
         };
@@ -89,11 +118,11 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
         let file_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
         let _ = state
             .storage
-            .set_file_hash(&project_id, &file_path_str, &file_hash)
+            .set_file_hash(project_id, &file_path_str, &file_hash)
             .await;
 
         // 1. Chunking (Vector Search) — cap chunks per file to bound memory
-        let mut chunks = chunk_file(file_path, &content, &project_id);
+        let mut chunks = chunk_file(file_path, &content, project_id);
         if chunks.len() > MAX_CHUNKS_PER_FILE {
             tracing::info!(
                 path = ?file_path,
@@ -127,7 +156,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
         }
 
         // 2. Parsing (Code Graph)
-        let (symbols, references) = CodeParser::parse_file(file_path, &content, &project_id);
+        let (symbols, references) = CodeParser::parse_file(file_path, &content, project_id);
 
         if !symbols.is_empty() {
             tracing::debug!("File {:?}: found {} symbols", file_path, symbols.len());
@@ -193,6 +222,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
                 percent,
                 chunks = status.total_chunks,
                 symbols = status.total_symbols,
+                failed = status.failed_files.len(),
                 "Indexing progress"
             );
             if let Err(e) = state.storage.update_index_status(status.clone()).await {
@@ -245,7 +275,7 @@ pub async fn index_project(state: Arc<AppState>, project_path: &Path) -> Result<
     if !relation_buffer.is_empty() {
         let stats = create_symbol_relations(
             state.storage.as_ref(),
-            &project_id,
+            project_id,
             &relation_buffer,
             &symbol_index,
         )
@@ -411,44 +441,6 @@ pub async fn incremental_index(
     }
 
     Ok(updated)
-}
-
-/// Detect auto-generated files that waste memory and have no useful semantic content
-fn is_generated_file(path: &Path) -> bool {
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-    let name_lower = name.to_lowercase();
-
-    // Generated Dart files (build_runner, freezed, json_serializable)
-    if name_lower.ends_with(".g.dart")
-        || name_lower.ends_with(".freezed.dart")
-        || name_lower.ends_with(".gr.dart")
-        || name_lower.ends_with(".config.dart")
-        || name_lower.ends_with(".mocks.dart")
-    {
-        return true;
-    }
-
-    // Minified JS/CSS
-    if name_lower.ends_with(".min.js")
-        || name_lower.ends_with(".min.css")
-        || name_lower.ends_with(".bundle.js")
-    {
-        return true;
-    }
-
-    // Lock files and generated manifests
-    matches!(
-        name_lower.as_str(),
-        "package-lock.json"
-            | "yarn.lock"
-            | "pnpm-lock.yaml"
-            | "composer.lock"
-            | "cargo.lock"
-            | "pubspec.lock"
-            | "gemfile.lock"
-            | "poetry.lock"
-    )
 }
 
 #[cfg(test)]

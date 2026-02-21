@@ -65,7 +65,13 @@ pub async fn index_project(
                 }
                 tracing::info!(project_id = %project_id, "Force re-indexing project");
             }
-            _ => {}
+            crate::types::IndexState::Failed => {
+                tracing::info!(
+                    project_id = %project_id,
+                    error = ?status.error_message,
+                    "Previous indexing failed, re-indexing"
+                );
+            }
         }
     }
 
@@ -104,17 +110,19 @@ pub async fn search_code(
 ) -> anyhow::Result<CallToolResult> {
     crate::ensure_embedding_ready!(state);
 
-    // Check if project is being indexed
+    let mut is_partial = false;
+    let mut indexing_message = None;
+
     if let Some(ref project_id) = params.project_id {
         if let Ok(Some(status)) = state.storage.get_index_status(project_id).await {
-            if status.status == crate::types::IndexState::Indexing {
-                return Ok(success_json(json!({
-                    "status": "indexing",
-                    "project_id": project_id,
-                    "progress": format!("{}/{} files", status.indexed_files, status.total_files),
-                    "total_chunks": status.total_chunks,
-                    "message": "Indexing in progress. Results may be incomplete."
-                })));
+            if status.status == crate::types::IndexState::Indexing
+                || status.status == crate::types::IndexState::EmbeddingPending
+            {
+                is_partial = true;
+                indexing_message = Some(format!(
+                    "Indexing in progress ({}/{} files). Results may be incomplete.",
+                    status.indexed_files, status.total_files
+                ));
             }
         }
     }
@@ -132,7 +140,9 @@ pub async fn search_code(
         return Ok(success_json(json!({
             "results": results,
             "count": results.len(),
-            "query": params.query
+            "query": params.query,
+            "is_partial": is_partial,
+            "message": indexing_message
         })));
     }
 
@@ -145,7 +155,9 @@ pub async fn search_code(
             "results": fallback,
             "count": fallback.len(),
             "query": params.query,
-            "note": "fallback to text search"
+            "note": "fallback to text search",
+            "is_partial": is_partial,
+            "message": indexing_message
         }))),
         Err(e) => Ok(error_response(e)),
     }
@@ -160,6 +172,23 @@ pub async fn recall_code(
     use std::collections::HashMap;
 
     crate::ensure_embedding_ready!(state);
+
+    let mut is_partial = false;
+    let mut indexing_message = None;
+
+    if let Some(ref project_id) = params.project_id {
+        if let Ok(Some(status)) = state.storage.get_index_status(project_id).await {
+            if status.status == crate::types::IndexState::Indexing
+                || status.status == crate::types::IndexState::EmbeddingPending
+            {
+                is_partial = true;
+                indexing_message = Some(format!(
+                    "Indexing in progress ({}/{} files). Results may be incomplete.",
+                    status.indexed_files, status.total_files
+                ));
+            }
+        }
+    }
 
     let query_embedding = state.embedding.embed(&params.query).await?;
 
@@ -391,7 +420,9 @@ pub async fn recall_code(
             "vector": vector_weight,
             "bm25": bm25_weight,
             "ppr": ppr_weight
-        }
+        },
+        "is_partial": is_partial,
+        "message": indexing_message
     })))
 }
 
@@ -472,14 +503,14 @@ pub async fn get_index_status(
                 },
 
                 "vector_embeddings": {
-                    "status": if embedded_chunks >= total_chunks && total_chunks > 0 { "completed" } else { "in_progress" },
+                    "status": if status.status == crate::types::IndexState::Completed || (embedded_chunks >= total_chunks && total_chunks > 0) { "completed" } else { "in_progress" },
                     "total": total_chunks,
                     "completed": embedded_chunks,
                     "percent": format!("{:.1}", vector_progress)
                 },
 
                 "graph_embeddings": {
-                    "status": if embedded_symbols >= total_symbols && total_symbols > 0 { "completed" } else { "in_progress" },
+                    "status": if status.status == crate::types::IndexState::Completed || (embedded_symbols >= total_symbols && total_symbols > 0) { "completed" } else { "in_progress" },
                     "total": total_symbols,
                     "completed": embedded_symbols,
                     "percent": format!("{:.1}", graph_progress)
@@ -487,7 +518,7 @@ pub async fn get_index_status(
 
                 "overall_progress": {
                     "percent": format!("{:.1}", overall_progress),
-                    "is_complete": embedded_chunks >= total_chunks && embedded_symbols >= total_symbols && total_chunks > 0
+                    "is_complete": status.status == crate::types::IndexState::Completed || (embedded_chunks >= total_chunks && embedded_symbols >= total_symbols && total_chunks > 0)
                 }
             })))
         }
@@ -750,7 +781,8 @@ pub async fn get_project_stats(
             "progress_percent": format!("{:.1}", graph_progress)
         },
         "started_at": status.started_at,
-        "completed_at": status.completed_at
+        "completed_at": status.completed_at,
+        "failed_files": status.failed_files
     })))
 }
 
