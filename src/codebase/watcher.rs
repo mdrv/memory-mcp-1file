@@ -1,12 +1,12 @@
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use super::scanner::is_code_file;
+use super::scanner::{is_code_file, is_ignored_file};
 use crate::Result;
 
 pub struct FileWatcher {
@@ -38,7 +38,7 @@ impl FileWatcher {
             if let Ok(event) = res {
                 if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
                     for path in event.paths {
-                        if !is_ignored_path(&path) && is_code_file(&path) {
+                        if !is_ignored_file(&path) && is_code_file(&path) {
                             let _ = tx.blocking_send(path);
                         }
                     }
@@ -106,15 +106,4 @@ impl FileWatcher {
         self.cancel_tx = None;
         info!("Stopped file watcher");
     }
-}
-
-fn is_ignored_path(path: &Path) -> bool {
-    for component in path.components() {
-        if let Some(s) = component.as_os_str().to_str() {
-            if (s.starts_with('.') && s != ".") || s == "node_modules" || s == "target" {
-                return true;
-            }
-        }
-    }
-    false
 }

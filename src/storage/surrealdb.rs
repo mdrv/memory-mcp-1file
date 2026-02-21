@@ -908,7 +908,9 @@ impl StorageBackend for SurrealStorage {
                 total_symbols = $total_symbols,
                 started_at = $started_at,
                 completed_at = $completed_at,
-                error_message = $error_message
+                error_message = $error_message,
+                failed_files = $failed_files,
+                failed_embeddings = $failed_embeddings
             WHERE project_id = $project_id
         "#;
 
@@ -924,6 +926,8 @@ impl StorageBackend for SurrealStorage {
             .bind(("started_at", status.started_at))
             .bind(("completed_at", status.completed_at))
             .bind(("error_message", status.error_message.clone()))
+            .bind(("failed_files", status.failed_files.clone()))
+            .bind(("failed_embeddings", status.failed_embeddings))
             .await?;
 
         let updated: Vec<IndexStatus> = response.take(0).unwrap_or_default();

@@ -91,6 +91,12 @@ pub struct IndexStatus {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
+
+    #[serde(default)]
+    pub failed_files: Vec<String>,
+
+    #[serde(default)]
+    pub failed_embeddings: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -126,6 +132,8 @@ impl IndexStatus {
             started_at: Datetime::default(),
             completed_at: None,
             error_message: None,
+            failed_files: Vec::new(),
+            failed_embeddings: 0,
         }
     }
 }

@@ -19,4 +19,5 @@ target
 .clavix
 doc/research
 _vida
-npm/bin/
+npm/bin/test_ignore.rs
+test_qwen_loading.rs
